@@ -81,11 +81,6 @@ $(BIN)/license-header: Makefile
 	GOBIN=$(abspath $(@D)) $(GO) install \
 		  github.com/bufbuild/buf/private/pkg/licenseheader/cmd/license-header@v1.1.1
 
-$(BIN)/protoc-gen-connect-go: Makefile
-	@mkdir -p $(@D)
-	@# Pinned by go.mod already.
-	GOBIN=$(abspath $(@D)) $(GO) install github.com/bufbuild/connect/cmd/protoc-gen-connect-go
-
 $(BIN)/protoc-gen-go: Makefile
 	@mkdir -p $(@D)
 	GOBIN=$(abspath $(@D)) $(GO) install google.golang.org/protobuf/cmd/protoc-gen-go@v1.27.1
