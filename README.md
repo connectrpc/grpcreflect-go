@@ -6,9 +6,9 @@ connect-grpcreflect-go
 [![GoDoc](https://pkg.go.dev/badge/connectrpc.com/grpcreflect.svg)](https://pkg.go.dev/connectrpc.com/grpcreflect)
 
 `connect-grpcreflect-go` adds support for gRPC's server reflection API to any
-`net/http` server&mdash;including those built with [Connect][docs]! The server
-reflection API lets ad-hoc debugging tools call your Protobuf services and
-print the responses *without* a copy of the schema.
+`net/http` server&mdash;including those built with [Connect][docs]! With server
+reflection enabled, ad-hoc debugging tools can call your gRPC-compatible
+handlers and print the responses *without* a copy of the schema.
 
 The exposed reflection API is wire compatible with Google's gRPC
 implementations, so it works with [grpcurl], [grpcui], [BloomRPC], and many
