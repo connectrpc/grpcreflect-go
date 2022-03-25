@@ -23,62 +23,71 @@ import (
 
 	"github.com/bufbuild/connect"
 	_ "github.com/bufbuild/connect-grpcreflect-go/internal/gen/go/connect/reflecttest/v1"
-	reflectionv1alpha1 "github.com/bufbuild/connect-grpcreflect-go/internal/gen/go/connectext/grpc/reflection/v1alpha"
+	reflectionv1 "github.com/bufbuild/connect-grpcreflect-go/internal/gen/go/connectext/grpc/reflection/v1"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/testing/protocmp"
 )
 
 func TestReflection(t *testing.T) {
-	const service = "internal.reflection.v1alpha1.ServerReflection"
+	const (
+		actualService = "connectext.grpc.reflection.v1.ServerReflection"
+		nameV1Alpha1  = "grpc.reflection.v1alpha1.ServerReflection"
+		nameV1        = "grpc.reflection.v1.ServerReflection"
+	)
 	t.Run("static", func(t *testing.T) {
-		reflector := NewStaticReflector(service)
-		testReflector(t, reflector)
+		reflector := NewStaticReflector(actualService)
+		testReflector(t, reflector, nameV1)
+	})
+	t.Run("v1alpha1", func(t *testing.T) {
+		reflector := NewStaticReflector(actualService)
+		testReflector(t, reflector, nameV1Alpha1)
 	})
 	t.Run("options", func(t *testing.T) {
 		reflector := NewReflector(
-			&staticNames{names: []string{service}},
+			&staticNames{names: []string{actualService}},
 			WithExtensionResolver(protoregistry.GlobalTypes),
 			WithDescriptorResolver(protoregistry.GlobalFiles),
 		)
-		testReflector(t, reflector)
+		testReflector(t, reflector, nameV1)
 	})
 }
 
-func testReflector(t *testing.T, reflector *Reflector) {
+func testReflector(t *testing.T, reflector *Reflector, reflectionServiceFQN string) {
 	mux := http.NewServeMux()
 	mux.Handle(NewHandler(reflector))
+	mux.Handle(NewHandlerAlpha(reflector))
 	server := httptest.NewUnstartedServer(mux)
 	server.EnableHTTP2 = true
 	server.StartTLS()
 	defer server.Close()
 
-	reflectionRequestFQN := string((&reflectionv1alpha1.ServerReflectionRequest{}).
+	reflectionRequestFQN := string((&reflectionv1.ServerReflectionRequest{}).
 		ProtoReflect().
 		Descriptor().
 		FullName())
 	client, err := connect.NewClient[
-		reflectionv1alpha1.ServerReflectionRequest,
-		reflectionv1alpha1.ServerReflectionResponse,
+		reflectionv1.ServerReflectionRequest,
+		reflectionv1.ServerReflectionResponse,
 	](
 		server.Client(),
-		server.URL+"/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo",
+		server.URL+"/"+reflectionServiceFQN+"/ServerReflectionInfo",
 		connect.WithGRPC(),
 	)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
-	call := func(req *reflectionv1alpha1.ServerReflectionRequest) (*reflectionv1alpha1.ServerReflectionResponse, error) {
+	call := func(req *reflectionv1.ServerReflectionRequest) (*reflectionv1.ServerReflectionResponse, error) {
 		res, err := client.CallUnary(context.Background(), connect.NewRequest(req))
 		if err != nil {
 			return nil, err
 		}
-		return res.Msg, err
+		return res.Msg, nil
 	}
 
 	assertFileDescriptorResponseContains := func(
 		t testing.TB,
-		req *reflectionv1alpha1.ServerReflectionRequest,
+		req *reflectionv1.ServerReflectionRequest,
 		substring string,
 	) {
 		t.Helper()
@@ -107,12 +116,12 @@ func testReflector(t *testing.T, reflector *Reflector) {
 
 	assertFileDescriptorResponseNotFound := func(
 		t testing.TB,
-		req *reflectionv1alpha1.ServerReflectionRequest,
+		req *reflectionv1.ServerReflectionRequest,
 	) {
 		t.Helper()
 		res, netErr := call(req)
 		if netErr != nil {
-			t.Fatal(err.Error())
+			t.Fatal(err)
 		}
 		err := res.GetErrorResponse()
 		if err == nil {
@@ -127,23 +136,23 @@ func testReflector(t *testing.T, reflector *Reflector) {
 	}
 
 	t.Run("list_services", func(t *testing.T) {
-		req := &reflectionv1alpha1.ServerReflectionRequest{
+		req := &reflectionv1.ServerReflectionRequest{
 			Host: "some-host",
-			MessageRequest: &reflectionv1alpha1.ServerReflectionRequest_ListServices{
+			MessageRequest: &reflectionv1.ServerReflectionRequest_ListServices{
 				ListServices: "ignored per protobuf documentation",
 			},
 		}
 		res, err := call(req)
 		if err != nil {
-			t.Fatal(err.Error())
+			t.Fatal(err)
 		}
-		expect := &reflectionv1alpha1.ServerReflectionResponse{
+		expect := &reflectionv1.ServerReflectionResponse{
 			ValidHost:       req.Host,
 			OriginalRequest: req,
-			MessageResponse: &reflectionv1alpha1.ServerReflectionResponse_ListServicesResponse{
-				ListServicesResponse: &reflectionv1alpha1.ListServiceResponse{
-					Service: []*reflectionv1alpha1.ServiceResponse{
-						{Name: "internal.reflection.v1alpha1.ServerReflection"},
+			MessageResponse: &reflectionv1.ServerReflectionResponse_ListServicesResponse{
+				ListServicesResponse: &reflectionv1.ListServiceResponse{
+					Service: []*reflectionv1.ServiceResponse{
+						{Name: "connectext.grpc.reflection.v1.ServerReflection"},
 					},
 				},
 			},
@@ -153,46 +162,46 @@ func testReflector(t *testing.T, reflector *Reflector) {
 		}
 	})
 	t.Run("file_by_filename", func(t *testing.T) {
-		req := &reflectionv1alpha1.ServerReflectionRequest{
+		req := &reflectionv1.ServerReflectionRequest{
 			Host: "some-host",
-			MessageRequest: &reflectionv1alpha1.ServerReflectionRequest_FileByFilename{
-				FileByFilename: "connectext/grpc/reflection/v1alpha/reflection.proto",
+			MessageRequest: &reflectionv1.ServerReflectionRequest_FileByFilename{
+				FileByFilename: "connectext/grpc/reflection/v1/reflection.proto",
 			},
 		}
 		assertFileDescriptorResponseContains(t, req, reflectionRequestFQN)
 	})
 	t.Run("file_by_filename_missing", func(t *testing.T) {
-		req := &reflectionv1alpha1.ServerReflectionRequest{
+		req := &reflectionv1.ServerReflectionRequest{
 			Host: "some-host",
-			MessageRequest: &reflectionv1alpha1.ServerReflectionRequest_FileByFilename{
+			MessageRequest: &reflectionv1.ServerReflectionRequest_FileByFilename{
 				FileByFilename: "foo.proto",
 			},
 		}
 		assertFileDescriptorResponseNotFound(t, req)
 	})
 	t.Run("file_containing_symbol", func(t *testing.T) {
-		req := &reflectionv1alpha1.ServerReflectionRequest{
+		req := &reflectionv1.ServerReflectionRequest{
 			Host: "some-host",
-			MessageRequest: &reflectionv1alpha1.ServerReflectionRequest_FileContainingSymbol{
+			MessageRequest: &reflectionv1.ServerReflectionRequest_FileContainingSymbol{
 				FileContainingSymbol: reflectionRequestFQN,
 			},
 		}
 		assertFileDescriptorResponseContains(t, req, "reflection.proto")
 	})
 	t.Run("file_containing_symbol_missing", func(t *testing.T) {
-		req := &reflectionv1alpha1.ServerReflectionRequest{
+		req := &reflectionv1.ServerReflectionRequest{
 			Host: "some-host",
-			MessageRequest: &reflectionv1alpha1.ServerReflectionRequest_FileContainingSymbol{
+			MessageRequest: &reflectionv1.ServerReflectionRequest_FileContainingSymbol{
 				FileContainingSymbol: "something.Thing",
 			},
 		}
 		assertFileDescriptorResponseNotFound(t, req)
 	})
 	t.Run("file_containing_extension", func(t *testing.T) {
-		req := &reflectionv1alpha1.ServerReflectionRequest{
+		req := &reflectionv1.ServerReflectionRequest{
 			Host: "some-host",
-			MessageRequest: &reflectionv1alpha1.ServerReflectionRequest_FileContainingExtension{
-				FileContainingExtension: &reflectionv1alpha1.ExtensionRequest{
+			MessageRequest: &reflectionv1.ServerReflectionRequest_FileContainingExtension{
+				FileContainingExtension: &reflectionv1.ExtensionRequest{
 					ContainingType:  "connect.reflecttest.v1.Extendable",
 					ExtensionNumber: 10,
 				},
@@ -201,10 +210,10 @@ func testReflector(t *testing.T, reflector *Reflector) {
 		assertFileDescriptorResponseContains(t, req, "reflecttest_ext.proto")
 	})
 	t.Run("file_containing_extension_missing", func(t *testing.T) {
-		req := &reflectionv1alpha1.ServerReflectionRequest{
+		req := &reflectionv1.ServerReflectionRequest{
 			Host: "some-host",
-			MessageRequest: &reflectionv1alpha1.ServerReflectionRequest_FileContainingExtension{
-				FileContainingExtension: &reflectionv1alpha1.ExtensionRequest{
+			MessageRequest: &reflectionv1.ServerReflectionRequest_FileContainingExtension{
+				FileContainingExtension: &reflectionv1.ExtensionRequest{
 					ContainingType:  "connect.reflecttest.v1.Extendable",
 					ExtensionNumber: 42,
 				},
@@ -214,9 +223,9 @@ func testReflector(t *testing.T, reflector *Reflector) {
 	})
 	t.Run("all_extension_numbers_of_type", func(t *testing.T) {
 		const extendableFQN = "connect.reflecttest.v1.Extendable"
-		req := &reflectionv1alpha1.ServerReflectionRequest{
+		req := &reflectionv1.ServerReflectionRequest{
 			Host: "some-host",
-			MessageRequest: &reflectionv1alpha1.ServerReflectionRequest_AllExtensionNumbersOfType{
+			MessageRequest: &reflectionv1.ServerReflectionRequest_AllExtensionNumbersOfType{
 				AllExtensionNumbersOfType: extendableFQN,
 			},
 		}
@@ -224,11 +233,11 @@ func testReflector(t *testing.T, reflector *Reflector) {
 		if err != nil {
 			t.Fatal(err.Error())
 		}
-		expect := &reflectionv1alpha1.ServerReflectionResponse{
+		expect := &reflectionv1.ServerReflectionResponse{
 			ValidHost:       req.Host,
 			OriginalRequest: req,
-			MessageResponse: &reflectionv1alpha1.ServerReflectionResponse_AllExtensionNumbersResponse{
-				AllExtensionNumbersResponse: &reflectionv1alpha1.ExtensionNumberResponse{
+			MessageResponse: &reflectionv1.ServerReflectionResponse_AllExtensionNumbersResponse{
+				AllExtensionNumbersResponse: &reflectionv1.ExtensionNumberResponse{
 					BaseTypeName:    extendableFQN,
 					ExtensionNumber: []int32{10, 11},
 				},
@@ -239,9 +248,9 @@ func testReflector(t *testing.T, reflector *Reflector) {
 		}
 	})
 	t.Run("all_extension_numbers_of_type_missing", func(t *testing.T) {
-		req := &reflectionv1alpha1.ServerReflectionRequest{
+		req := &reflectionv1.ServerReflectionRequest{
 			Host: "some-host",
-			MessageRequest: &reflectionv1alpha1.ServerReflectionRequest_AllExtensionNumbersOfType{
+			MessageRequest: &reflectionv1.ServerReflectionRequest_AllExtensionNumbersOfType{
 				AllExtensionNumbersOfType: "foobar",
 			},
 		}
