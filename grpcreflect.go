@@ -34,25 +34,32 @@ import (
 	"sort"
 
 	"github.com/bufbuild/connect"
-	reflectionv1alpha1 "connectrpc.com/grpcreflect/internal/gen/go/connectext/grpc/reflection/v1alpha"
+	reflectionv1 "connectrpc.com/grpcreflect/internal/gen/go/connectext/grpc/reflection/v1"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 )
 
-// NewHandler constructs an implementation of the gRPC server reflection API.
-// It returns an HTTP handler and the path on which to mount it. Note that
-// because the reflection API requires bidirectional streaming, the returned
-// handler doesn't support HTTP/1.1 (including gRPC-Web requests from a
-// browser).
+// NewHandler constructs an implementation of v1 of the gRPC server reflection
+// API. It returns an HTTP handler and the path on which to mount it.
+//
+// Note that because the reflection API requires bidirectional streaming, the
+// returned handler doesn't support HTTP/1.1. If your server must also support
+// older tools that use the v1alpha1 server reflection API, see NewHandlerAlpha.
 func NewHandler(reflector *Reflector, options ...connect.HandlerOption) (string, http.Handler) {
-	const serviceName = "/grpc.reflection.v1alpha.ServerReflection/"
-	return serviceName, connect.NewBidiStreamHandler(
-		serviceName+"ServerReflectionInfo",
-		reflector.serverReflectionInfo,
-		options...,
-	)
+	return newHandler(reflector, "/grpc.reflection.v1.ServerReflection/", options)
+}
+
+// NewHandlerAlpha constructs an implementation of v1alpha1 of the gRPC server
+// reflection API. It returns an HTTP handler and the path on which to mount
+// it.
+//
+// If your server must support older tools that expect v1alpha1 of the server
+// reflection API, you should use NewHandlerAlpha in addition to NewHandler.
+func NewHandlerAlpha(reflector *Reflector, options ...connect.HandlerOption) (string, http.Handler) {
+	// v1 is binary-compatible with v1alpha1, so we only need to change paths.
+	return newHandler(reflector, "/grpc.reflection.v1alpha1.ServerReflection/", options)
 }
 
 // Reflectors implement the underlying logic for gRPC's protobuf server
@@ -107,8 +114,8 @@ func NewStaticReflector(services ...string) *Reflector {
 func (r *Reflector) serverReflectionInfo(
 	ctx context.Context,
 	stream *connect.BidiStream[
-		reflectionv1alpha1.ServerReflectionRequest,
-		reflectionv1alpha1.ServerReflectionResponse,
+		reflectionv1.ServerReflectionRequest,
+		reflectionv1.ServerReflectionResponse,
 	],
 ) error {
 	fileDescriptorsSent := &fileDescriptorNameSet{}
@@ -121,21 +128,21 @@ func (r *Reflector) serverReflectionInfo(
 		}
 		// The server reflection API sends file descriptors as uncompressed
 		// protobuf-serialized bytes.
-		response := &reflectionv1alpha1.ServerReflectionResponse{
+		response := &reflectionv1.ServerReflectionResponse{
 			ValidHost:       request.Host,
 			OriginalRequest: request,
 		}
 		switch messageRequest := request.MessageRequest.(type) {
-		case *reflectionv1alpha1.ServerReflectionRequest_FileByFilename:
+		case *reflectionv1.ServerReflectionRequest_FileByFilename:
 			data, err := r.getFileByFilename(messageRequest.FileByFilename, fileDescriptorsSent)
 			if err != nil {
 				response.MessageResponse = newNotFoundResponse(err)
 			} else {
-				response.MessageResponse = &reflectionv1alpha1.ServerReflectionResponse_FileDescriptorResponse{
-					FileDescriptorResponse: &reflectionv1alpha1.FileDescriptorResponse{FileDescriptorProto: data},
+				response.MessageResponse = &reflectionv1.ServerReflectionResponse_FileDescriptorResponse{
+					FileDescriptorResponse: &reflectionv1.FileDescriptorResponse{FileDescriptorProto: data},
 				}
 			}
-		case *reflectionv1alpha1.ServerReflectionRequest_FileContainingSymbol:
+		case *reflectionv1.ServerReflectionRequest_FileContainingSymbol:
 			data, err := r.getFileContainingSymbol(
 				messageRequest.FileContainingSymbol,
 				fileDescriptorsSent,
@@ -143,41 +150,41 @@ func (r *Reflector) serverReflectionInfo(
 			if err != nil {
 				response.MessageResponse = newNotFoundResponse(err)
 			} else {
-				response.MessageResponse = &reflectionv1alpha1.ServerReflectionResponse_FileDescriptorResponse{
-					FileDescriptorResponse: &reflectionv1alpha1.FileDescriptorResponse{FileDescriptorProto: data},
+				response.MessageResponse = &reflectionv1.ServerReflectionResponse_FileDescriptorResponse{
+					FileDescriptorResponse: &reflectionv1.FileDescriptorResponse{FileDescriptorProto: data},
 				}
 			}
-		case *reflectionv1alpha1.ServerReflectionRequest_FileContainingExtension:
+		case *reflectionv1.ServerReflectionRequest_FileContainingExtension:
 			msgFQN := messageRequest.FileContainingExtension.ContainingType
 			extNumber := messageRequest.FileContainingExtension.ExtensionNumber
 			data, err := r.getFileContainingExtension(msgFQN, extNumber, fileDescriptorsSent)
 			if err != nil {
 				response.MessageResponse = newNotFoundResponse(err)
 			} else {
-				response.MessageResponse = &reflectionv1alpha1.ServerReflectionResponse_FileDescriptorResponse{
-					FileDescriptorResponse: &reflectionv1alpha1.FileDescriptorResponse{FileDescriptorProto: data},
+				response.MessageResponse = &reflectionv1.ServerReflectionResponse_FileDescriptorResponse{
+					FileDescriptorResponse: &reflectionv1.FileDescriptorResponse{FileDescriptorProto: data},
 				}
 			}
-		case *reflectionv1alpha1.ServerReflectionRequest_AllExtensionNumbersOfType:
+		case *reflectionv1.ServerReflectionRequest_AllExtensionNumbersOfType:
 			nums, err := r.getAllExtensionNumbersOfType(messageRequest.AllExtensionNumbersOfType)
 			if err != nil {
 				response.MessageResponse = newNotFoundResponse(err)
 			} else {
-				response.MessageResponse = &reflectionv1alpha1.ServerReflectionResponse_AllExtensionNumbersResponse{
-					AllExtensionNumbersResponse: &reflectionv1alpha1.ExtensionNumberResponse{
+				response.MessageResponse = &reflectionv1.ServerReflectionResponse_AllExtensionNumbersResponse{
+					AllExtensionNumbersResponse: &reflectionv1.ExtensionNumberResponse{
 						BaseTypeName:    messageRequest.AllExtensionNumbersOfType,
 						ExtensionNumber: nums,
 					},
 				}
 			}
-		case *reflectionv1alpha1.ServerReflectionRequest_ListServices:
+		case *reflectionv1.ServerReflectionRequest_ListServices:
 			services := r.namer.Names()
-			serviceResponses := make([]*reflectionv1alpha1.ServiceResponse, len(services))
+			serviceResponses := make([]*reflectionv1.ServiceResponse, len(services))
 			for i, name := range services {
-				serviceResponses[i] = &reflectionv1alpha1.ServiceResponse{Name: name}
+				serviceResponses[i] = &reflectionv1.ServiceResponse{Name: name}
 			}
-			response.MessageResponse = &reflectionv1alpha1.ServerReflectionResponse_ListServicesResponse{
-				ListServicesResponse: &reflectionv1alpha1.ListServiceResponse{Service: serviceResponses},
+			response.MessageResponse = &reflectionv1.ServerReflectionResponse_ListServicesResponse{
+				ListServicesResponse: &reflectionv1.ListServiceResponse{Service: serviceResponses},
 			}
 		default:
 			return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf(
@@ -323,13 +330,21 @@ func fileDescriptorWithDependencies(fd protoreflect.FileDescriptor, sent *fileDe
 	return results, nil
 }
 
-func newNotFoundResponse(err error) *reflectionv1alpha1.ServerReflectionResponse_ErrorResponse {
-	return &reflectionv1alpha1.ServerReflectionResponse_ErrorResponse{
-		ErrorResponse: &reflectionv1alpha1.ErrorResponse{
+func newNotFoundResponse(err error) *reflectionv1.ServerReflectionResponse_ErrorResponse {
+	return &reflectionv1.ServerReflectionResponse_ErrorResponse{
+		ErrorResponse: &reflectionv1.ErrorResponse{
 			ErrorCode:    int32(connect.CodeNotFound),
 			ErrorMessage: err.Error(),
 		},
 	}
+}
+
+func newHandler(reflector *Reflector, serviceName string, options []connect.HandlerOption) (string, http.Handler) {
+	return serviceName, connect.NewBidiStreamHandler(
+		serviceName+"ServerReflectionInfo",
+		reflector.serverReflectionInfo,
+		options...,
+	)
 }
 
 type extensionResolverOption struct {

@@ -13,6 +13,7 @@ COPYRIGHT_YEARS := 2022
 # Which commit of bufbuild/makego should we source checknodiffgenerated.bash
 # from?
 MAKEGO_COMMIT := 383cdab9b837b1fba0883948ff54ed20eedbd611
+LICENSE_IGNORE := -e internal/proto/connectext
 
 .PHONY: help
 help: ## Describe useful make targets
@@ -45,7 +46,7 @@ lint: $(BIN)/gofmt $(BIN)/buf ## Lint Go and protobuf
 	@# Configure staticcheck to target the correct Go version and enable
 	@# ST1020, ST1021, and ST1022.
 	$(GO) vet ./...
-	$(BIN)/buf lint
+	$(BIN)/buf lint --exclude-path internal/proto/connectext
 
 .PHONY: lintfix
 lintfix: $(BIN)/gofmt $(BIN)/buf ## Automatically fix some lint errors
@@ -56,11 +57,19 @@ lintfix: $(BIN)/gofmt $(BIN)/buf ## Automatically fix some lint errors
 generate: $(BIN)/buf $(BIN)/protoc-gen-go $(BIN)/license-header ## Regenerate code and licenses
 	rm -rf internal/gen
 	PATH=$(BIN) $(BIN)/buf generate
+	@# We want to operate on a list of modified and new files, excluding
+	@# deleted and ignored files. git-ls-files can't do this alone. comm -23 takes
+	@# two files and prints the union, dropping lines common to both (-3) and
+	@# those only in the second file (-2). We make one git-ls-files call for
+	@# the modified, cached, and new (--others) files, and a second for the
+	@# deleted files.
 	@$(BIN)/license-header \
 		--license-type apache \
 		--copyright-holder "Buf Technologies, Inc." \
 		--year-range "$(COPYRIGHT_YEARS)" \
-		$(shell git ls-files) $(shell git ls-files --exclude-standard --others)
+		$(shell comm -23 \
+			<(git ls-files --cached --modified --others --no-empty-directory --exclude-standard | sort -u | grep -v $(LICENSE_IGNORE)) \
+			<(git ls-files --deleted | sort -u))
 
 .PHONY: upgrade
 upgrade: ## Upgrade dependencies
