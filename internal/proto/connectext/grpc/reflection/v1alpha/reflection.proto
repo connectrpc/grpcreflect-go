@@ -25,8 +25,7 @@ package internal.reflection.v1alpha1;
 service ServerReflection {
   // The reflection service is structured as a bidirectional stream, ensuring
   // all related requests go to a single server.
-  rpc ServerReflectionInfo(stream ServerReflectionRequest)
-      returns (stream ServerReflectionResponse);
+  rpc ServerReflectionInfo(stream ServerReflectionRequest) returns (stream ServerReflectionResponse);
 }
 
 // The message sent by the client when calling ServerReflectionInfo method.
@@ -138,4 +137,3 @@ message ErrorResponse {
   int32 error_code = 1;
   string error_message = 2;
 }
-
