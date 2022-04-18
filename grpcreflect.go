@@ -12,17 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package grpcreflect enables any net/http server, including those built with
-// Connect, to handle gRPC's server reflection API. This lets ad-hoc debugging
-// tools call your protobuf services and print the responses without a copy of
-// the schema.
-//
-// The exposed reflection API is wire compatible with Google's gRPC
-// implementations, so it works with grpcurl, grpcui, BloomRPC, and many other
-// tools.
-//
-// The core Connect package is github.com/bufbuild/connect. Documentation is
-// available at https://bufconnect.com/.
+// Package grpcreflect is not ready for public consumption.
 package grpcreflect
 
 import (
