@@ -29,11 +29,6 @@ jobs:
         uses: actions/setup-go@v3
         with:
           go-version: ${{ matrix.go-version }}
-      # TODO: Remove when connect is public.
-      - name: Configure Private Repo Access
-        uses: webfactory/ssh-agent@v0.5.4
-        with:
-          ssh-private-key: ${{ secrets.CONNECT_DEPLOY_KEY }}
       - name: Cache
         uses: actions/cache@v2
         with:
@@ -41,9 +36,9 @@ jobs:
           key: ${{ runner.os }}-connect-grpcreflect-go-ci-${{ hashFiles('**/go.sum') }}
           restore-keys: ${{ runner.os }}-connect-grpcreflect-go-ci-
       - name: Test
-        run: make test
+        run: make test && make checkgenerate
       - name: Lint
         # Often, lint & gofmt guidelines depend on the Go version. To prevent
         # conflicting guidance, run only on the most recent supported version.
         if: matrix.latest
-        run: make lint && make checkgenerate
+        run: make lint

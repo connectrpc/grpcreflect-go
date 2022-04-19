@@ -7,13 +7,10 @@ MAKEFLAGS += --warn-undefined-variables
 MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-print-directory
 BIN=.tmp/bin
+COPYRIGHT_YEARS := 2022
+LICENSE_IGNORE := -e /testdata/ -e internal/proto/connectext/
 # Set to use a different compiler. For example, `GO=go1.18rc1 make test`.
 GO ?= go
-COPYRIGHT_YEARS := 2022
-# Which commit of bufbuild/makego should we source checknodiffgenerated.bash
-# from?
-MAKEGO_COMMIT := 383cdab9b837b1fba0883948ff54ed20eedbd611
-LICENSE_IGNORE := -e internal/proto/connectext
 
 .PHONY: help
 help: ## Describe useful make targets
@@ -23,7 +20,6 @@ help: ## Describe useful make targets
 all: ## Build, test, and lint (default)
 	$(MAKE) test
 	$(MAKE) lint
-	$(MAKE) checkgenerate
 
 .PHONY: clean
 clean: ## Delete intermediate build artifacts
@@ -39,18 +35,15 @@ build: generate ## Build all packages
 	$(GO) build ./...
 
 .PHONY: lint
-lint: $(BIN)/gofmt $(BIN)/buf ## Lint Go and protobuf
-	test -z "$$($(BIN)/gofmt -s -l . | tee /dev/stderr)"
+lint: $(BIN)/golangci-lint $(BIN)/buf ## Lint Go and protobuf
 	test -z "$$($(BIN)/buf format -d . | tee /dev/stderr)"
-	@# TODO: replace vet with golangci-lint when it supports 1.18
-	@# Configure staticcheck to target the correct Go version and enable
-	@# ST1020, ST1021, and ST1022.
 	$(GO) vet ./...
+	$(BIN)/golangci-lint run
 	$(BIN)/buf lint --exclude-path internal/proto/connectext
 
 .PHONY: lintfix
-lintfix: $(BIN)/gofmt $(BIN)/buf ## Automatically fix some lint errors
-	$(BIN)/gofmt -s -w .
+lintfix: $(BIN)/golangci-lint $(BIN)/buf ## Automatically fix some lint errors
+	$(BIN)/golangci-lint run --fix
 	$(BIN)/buf format -w .
 
 .PHONY: generate
@@ -63,25 +56,22 @@ generate: $(BIN)/buf $(BIN)/protoc-gen-go $(BIN)/license-header ## Regenerate co
 	@# those only in the second file (-2). We make one git-ls-files call for
 	@# the modified, cached, and new (--others) files, and a second for the
 	@# deleted files.
-	@$(BIN)/license-header \
-		--license-type apache \
-		--copyright-holder "Buf Technologies, Inc." \
-		--year-range "$(COPYRIGHT_YEARS)" \
-		$(shell comm -23 \
-			<(git ls-files --cached --modified --others --no-empty-directory --exclude-standard | sort -u | grep -v $(LICENSE_IGNORE)) \
-			<(git ls-files --deleted | sort -u))
+	comm -23 \
+		<(git ls-files --cached --modified --others --no-empty-directory --exclude-standard | sort -u | grep -v $(LICENSE_IGNORE) ) \
+		<(git ls-files --deleted | sort -u) | \
+		xargs $(BIN)/license-header \
+			--license-type apache \
+			--copyright-holder "Buf Technologies, Inc." \
+			--year-range "$(COPYRIGHT_YEARS)"
 
 .PHONY: upgrade
 upgrade: ## Upgrade dependencies
 	go get -u -t ./... && go mod tidy -v
 
 .PHONY: checkgenerate
-checkgenerate: $(BIN)/checknodiffgenerated.bash
-	$(BIN)/checknodiffgenerated.bash $(MAKE) generate
-
-$(BIN)/gofmt:
-	@mkdir -p $(@D)
-	$(GO) build -o $(@) cmd/gofmt
+checkgenerate:
+	@# Used in CI to verify that `make generate` doesn't produce a diff.
+	test -z "$$(git status --porcelain | tee /dev/stderr)"
 
 $(BIN)/buf: Makefile
 	@mkdir -p $(@D)
@@ -92,12 +82,10 @@ $(BIN)/license-header: Makefile
 	GOBIN=$(abspath $(@D)) $(GO) install \
 		  github.com/bufbuild/buf/private/pkg/licenseheader/cmd/license-header@v1.2.1
 
+$(BIN)/golangci-lint: Makefile
+	@mkdir -p $(@D)
+	GOBIN=$(abspath $(@D)) $(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.45.2
+
 $(BIN)/protoc-gen-go: Makefile
 	@mkdir -p $(@D)
-	GOBIN=$(abspath $(@D)) $(GO) install google.golang.org/protobuf/cmd/protoc-gen-go@v1.27.1
-
-$(BIN)/checknodiffgenerated.bash:
-	@mkdir -p $(@D)
-	curl -SsLo $(@) https://raw.githubusercontent.com/bufbuild/makego/$(MAKEGO_COMMIT)/make/go/scripts/checknodiffgenerated.bash
-	chmod u+x $(@)
-
+	GOBIN=$(abspath $(@D)) $(GO) install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28.0
