@@ -35,15 +35,19 @@ func TestReflection(t *testing.T) {
 		nameV1Alpha1  = "grpc.reflection.v1alpha1.ServerReflection"
 		nameV1        = "grpc.reflection.v1.ServerReflection"
 	)
+	t.Parallel()
 	t.Run("static", func(t *testing.T) {
+		t.Parallel()
 		reflector := NewStaticReflector(actualService)
 		testReflector(t, reflector, nameV1)
 	})
 	t.Run("v1alpha1", func(t *testing.T) {
+		t.Parallel()
 		reflector := NewStaticReflector(actualService)
 		testReflector(t, reflector, nameV1Alpha1)
 	})
 	t.Run("options", func(t *testing.T) {
+		t.Parallel()
 		reflector := NewReflector(
 			&staticNames{names: []string{actualService}},
 			WithExtensionResolver(protoregistry.GlobalTypes),
@@ -54,6 +58,7 @@ func TestReflection(t *testing.T) {
 }
 
 func testReflector(t *testing.T, reflector *Reflector, reflectionServiceFQN string) {
+	t.Helper()
 	mux := http.NewServeMux()
 	mux.Handle(NewHandler(reflector))
 	mux.Handle(NewHandlerAlpha(reflector))
@@ -86,27 +91,27 @@ func testReflector(t *testing.T, reflector *Reflector, reflectionServiceFQN stri
 	}
 
 	assertFileDescriptorResponseContains := func(
-		t testing.TB,
+		tb testing.TB,
 		req *reflectionv1.ServerReflectionRequest,
 		substring string,
 	) {
-		t.Helper()
+		tb.Helper()
 		res, err := call(req)
 		if err != nil {
-			t.Fatal(err.Error())
+			tb.Fatal(err.Error())
 		}
 		if res.GetErrorResponse() != nil {
-			t.Fatal(res.GetErrorResponse())
+			tb.Fatal(res.GetErrorResponse())
 		}
 		fds := res.GetFileDescriptorResponse()
 		if fds == nil {
-			t.Fatal("got nil FileDescriptorResponse")
+			tb.Fatal("got nil FileDescriptorResponse")
 		}
 		if len(fds.FileDescriptorProto) != 1 {
-			t.Fatalf("got %d FileDescriptorProtos, expected 1", len(fds.FileDescriptorProto))
+			tb.Fatalf("got %d FileDescriptorProtos, expected 1", len(fds.FileDescriptorProto))
 		}
 		if !bytes.Contains(fds.FileDescriptorProto[0], []byte(substring)) {
-			t.Fatalf(
+			tb.Fatalf(
 				"expected FileDescriptorProto to contain %s, got:\n%v",
 				substring,
 				fds.FileDescriptorProto[0],
@@ -115,23 +120,23 @@ func testReflector(t *testing.T, reflector *Reflector, reflectionServiceFQN stri
 	}
 
 	assertFileDescriptorResponseNotFound := func(
-		t testing.TB,
+		tb testing.TB,
 		req *reflectionv1.ServerReflectionRequest,
 	) {
-		t.Helper()
+		tb.Helper()
 		res, netErr := call(req)
 		if netErr != nil {
-			t.Fatal(err)
+			tb.Fatal(err)
 		}
 		err := res.GetErrorResponse()
 		if err == nil {
-			t.Fatal("expected error, got nil")
+			tb.Fatal("expected error, got nil")
 		}
 		if err.ErrorCode != int32(connect.CodeNotFound) {
-			t.Fatalf("got code %v, expected %v", err.ErrorCode, connect.CodeNotFound)
+			tb.Fatalf("got code %v, expected %v", err.ErrorCode, connect.CodeNotFound)
 		}
 		if err.ErrorMessage == "" {
-			t.Fatalf("got empty error message, expected some text")
+			tb.Fatalf("got empty error message, expected some text")
 		}
 	}
 
