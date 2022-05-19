@@ -36,7 +36,7 @@ import (
 //
 // Note that because the reflection API requires bidirectional streaming, the
 // returned handler doesn't support HTTP/1.1. If your server must also support
-// older tools that use the v1alpha1 server reflection API, see NewHandlerAlpha.
+// older tools that use the v1alpha1 server reflection API, see NewHandlerV1Alpha1.
 func NewHandlerV1(reflector *Reflector, options ...connect.HandlerOption) (string, http.Handler) {
 	return newHandler(reflector, "/grpc.reflection.v1.ServerReflection/", options)
 }
@@ -46,7 +46,7 @@ func NewHandlerV1(reflector *Reflector, options ...connect.HandlerOption) (strin
 // it.
 //
 // If your server must support older tools that expect v1alpha1 of the server
-// reflection API, you should use NewHandlerAlpha in addition to NewHandler.
+// reflection API, you should use NewHandlerV1Alpha1 in addition to NewHandlerV1.
 func NewHandlerV1Alpha1(reflector *Reflector, options ...connect.HandlerOption) (string, http.Handler) {
 	// v1 is binary-compatible with v1alpha1, so we only need to change paths.
 	return newHandler(reflector, "/grpc.reflection.v1alpha1.ServerReflection/", options)
