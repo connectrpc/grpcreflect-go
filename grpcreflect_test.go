@@ -60,8 +60,8 @@ func TestReflection(t *testing.T) {
 func testReflector(t *testing.T, reflector *Reflector, reflectionServiceFQN string) {
 	t.Helper()
 	mux := http.NewServeMux()
-	mux.Handle(NewHandler(reflector))
-	mux.Handle(NewHandlerAlpha(reflector))
+	mux.Handle(NewHandlerV1(reflector))
+	mux.Handle(NewHandlerV1Alpha1(reflector))
 	server := httptest.NewUnstartedServer(mux)
 	server.EnableHTTP2 = true
 	server.StartTLS()
