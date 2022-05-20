@@ -106,6 +106,7 @@ func testReflector(t *testing.T, reflector *Reflector, reflectionServiceFQN stri
 		fds := res.GetFileDescriptorResponse()
 		if fds == nil {
 			tb.Fatal("got nil FileDescriptorResponse")
+			return // convinces staticcheck that remaining code is unreachable
 		}
 		if len(fds.FileDescriptorProto) != 1 {
 			tb.Fatalf("got %d FileDescriptorProtos, expected 1", len(fds.FileDescriptorProto))
@@ -131,6 +132,7 @@ func testReflector(t *testing.T, reflector *Reflector, reflectionServiceFQN stri
 		err := res.GetErrorResponse()
 		if err == nil {
 			tb.Fatal("expected error, got nil")
+			return // convinces staticcheck that remaining code is unreachable
 		}
 		if err.ErrorCode != int32(connect.CodeNotFound) {
 			tb.Fatalf("got code %v, expected %v", err.ErrorCode, connect.CodeNotFound)
