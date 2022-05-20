@@ -31,23 +31,23 @@ import (
 	"google.golang.org/protobuf/reflect/protoregistry"
 )
 
-// NewHandler constructs an implementation of v1 of the gRPC server reflection
+// NewHandlerV1 constructs an implementation of v1 of the gRPC server reflection
 // API. It returns an HTTP handler and the path on which to mount it.
 //
 // Note that because the reflection API requires bidirectional streaming, the
 // returned handler doesn't support HTTP/1.1. If your server must also support
-// older tools that use the v1alpha1 server reflection API, see NewHandlerAlpha.
-func NewHandler(reflector *Reflector, options ...connect.HandlerOption) (string, http.Handler) {
+// older tools that use the v1alpha1 server reflection API, see NewHandlerV1Alpha1.
+func NewHandlerV1(reflector *Reflector, options ...connect.HandlerOption) (string, http.Handler) {
 	return newHandler(reflector, "/grpc.reflection.v1.ServerReflection/", options)
 }
 
-// NewHandlerAlpha constructs an implementation of v1alpha1 of the gRPC server
+// NewHandlerV1Alpha1 constructs an implementation of v1alpha1 of the gRPC server
 // reflection API. It returns an HTTP handler and the path on which to mount
 // it.
 //
 // If your server must support older tools that expect v1alpha1 of the server
-// reflection API, you should use NewHandlerAlpha in addition to NewHandler.
-func NewHandlerAlpha(reflector *Reflector, options ...connect.HandlerOption) (string, http.Handler) {
+// reflection API, you should use NewHandlerV1Alpha1 in addition to NewHandlerV1.
+func NewHandlerV1Alpha1(reflector *Reflector, options ...connect.HandlerOption) (string, http.Handler) {
 	// v1 is binary-compatible with v1alpha1, so we only need to change paths.
 	return newHandler(reflector, "/grpc.reflection.v1alpha1.ServerReflection/", options)
 }
