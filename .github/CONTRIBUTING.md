@@ -23,7 +23,7 @@ you to accept the CLA when you open your pull request.
 mkdir -p $GOPATH/src/github.com/bufbuild
 cd $GOPATH/src/github.com/bufbuild
 git clone git@github.com:your_github_username/connect-grpcreflect-go.git
-cd connect
+cd connect-grpcreflect-go
 git remote add upstream https://connectrpc.com/grpcreflect.git
 git fetch upstream
 ```
