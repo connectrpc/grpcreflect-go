@@ -1,5 +1,7 @@
 github.com/bufbuild/connect v0.0.0-20220323031212-c292db9aad6d h1:UbT+MfwGmXjkNVoNIMUur8nZVIfu40bLPNQ6y6PxEis=
 github.com/bufbuild/connect v0.0.0-20220323031212-c292db9aad6d/go.mod h1:m+Mrt/xmlDYZvfOA1G4SgXr6p1l1lQ8FUx5n7wsNpnM=
+github.com/bufbuild/connect-go v0.0.0-20220520175512-2b3d3442ffb8 h1:ZaD9cVYESl0sBAvcpmSO4wRbOSwS32F5wNPrnDw1XdE=
+github.com/bufbuild/connect-go v0.0.0-20220520175512-2b3d3442ffb8/go.mod h1:BajZGyRXK+Oq6Ddkm7atQ1Tu4W92OMpam7vyhFIf0ww=
 github.com/golang/protobuf v1.5.0/go.mod h1:FsONVRAS9T7sI+LIUmWTfcYkHO4aIWwzhcaSAoJOfIk=
 github.com/google/go-cmp v0.5.5/go.mod h1:v8dTdLbMG2kIc/vJvl+f65V22dbkXbowE6jgT/gNBxE=
 github.com/google/go-cmp v0.5.7 h1:81/ik6ipDQS2aGcBfIN5dHDB36BwrStyeAQquSYCV4o=
