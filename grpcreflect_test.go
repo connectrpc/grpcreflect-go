@@ -21,7 +21,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/bufbuild/connect"
+	"connectrpc.com/connect"
 	_ "connectrpc.com/grpcreflect/internal/gen/go/connect/reflecttest/v1"
 	reflectionv1 "connectrpc.com/grpcreflect/internal/gen/go/connectext/grpc/reflection/v1"
 	"github.com/google/go-cmp/cmp"
@@ -71,7 +71,7 @@ func testReflector(t *testing.T, reflector *Reflector, reflectionServiceFQN stri
 		ProtoReflect().
 		Descriptor().
 		FullName())
-	client, err := connect.NewClient[
+	client := connect.NewClient[
 		reflectionv1.ServerReflectionRequest,
 		reflectionv1.ServerReflectionResponse,
 	](
@@ -79,9 +79,6 @@ func testReflector(t *testing.T, reflector *Reflector, reflectionServiceFQN stri
 		server.URL+"/"+reflectionServiceFQN+"/ServerReflectionInfo",
 		connect.WithGRPC(),
 	)
-	if err != nil {
-		t.Fatal(err.Error())
-	}
 	call := func(req *reflectionv1.ServerReflectionRequest) (*reflectionv1.ServerReflectionResponse, error) {
 		res, err := client.CallUnary(context.Background(), connect.NewRequest(req))
 		if err != nil {
@@ -127,7 +124,7 @@ func testReflector(t *testing.T, reflector *Reflector, reflectionServiceFQN stri
 		tb.Helper()
 		res, netErr := call(req)
 		if netErr != nil {
-			tb.Fatal(err)
+			tb.Fatal(netErr)
 		}
 		err := res.GetErrorResponse()
 		if err == nil {

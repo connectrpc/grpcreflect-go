@@ -23,7 +23,7 @@ import (
 	"net/http"
 	"sort"
 
-	"github.com/bufbuild/connect"
+	"connectrpc.com/connect"
 	reflectionv1 "connectrpc.com/grpcreflect/internal/gen/go/connectext/grpc/reflection/v1"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
