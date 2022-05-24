@@ -94,7 +94,8 @@ func NewReflector(namer Namer, options ...Option) *Reflector {
 // a more configurable Reflector, use NewReflector.
 //
 // The supplied strings should be fully-qualified protobuf service names (for
-// example, "acme.user.v1.UserService").
+// example, "acme.user.v1.UserService"). Generated Connect service files
+// have this declared as a constant.
 func NewStaticReflector(services ...string) *Reflector {
 	namer := &staticNames{names: services}
 	return NewReflector(namer)
