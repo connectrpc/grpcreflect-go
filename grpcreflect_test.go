@@ -32,7 +32,7 @@ import (
 func TestReflection(t *testing.T) {
 	const (
 		actualService = "connectext.grpc.reflection.v1.ServerReflection"
-		nameV1Alpha1  = "grpc.reflection.v1alpha1.ServerReflection"
+		nameV1Alpha   = "grpc.reflection.v1alpha.ServerReflection"
 		nameV1        = "grpc.reflection.v1.ServerReflection"
 	)
 	t.Parallel()
@@ -44,7 +44,7 @@ func TestReflection(t *testing.T) {
 	t.Run("v1alpha1", func(t *testing.T) {
 		t.Parallel()
 		reflector := NewStaticReflector(actualService)
-		testReflector(t, reflector, nameV1Alpha1)
+		testReflector(t, reflector, nameV1Alpha)
 	})
 	t.Run("options", func(t *testing.T) {
 		t.Parallel()
@@ -61,7 +61,7 @@ func testReflector(t *testing.T, reflector *Reflector, reflectionServiceFQN stri
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.Handle(NewHandlerV1(reflector))
-	mux.Handle(NewHandlerV1Alpha1(reflector))
+	mux.Handle(NewHandlerV1Alpha(reflector))
 	server := httptest.NewUnstartedServer(mux)
 	server.EnableHTTP2 = true
 	server.StartTLS()

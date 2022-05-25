@@ -41,15 +41,16 @@ func NewHandlerV1(reflector *Reflector, options ...connect.HandlerOption) (strin
 	return newHandler(reflector, "/grpc.reflection.v1.ServerReflection/", options)
 }
 
-// NewHandlerV1Alpha1 constructs an implementation of v1alpha1 of the gRPC server
+// NewHandlerV1Alpha constructs an implementation of v1alpha1 of the gRPC server
 // reflection API. It returns an HTTP handler and the path on which to mount
 // it.
 //
-// If your server must support older tools that expect v1alpha1 of the server
-// reflection API, you should use NewHandlerV1Alpha1 in addition to NewHandlerV1.
-func NewHandlerV1Alpha1(reflector *Reflector, options ...connect.HandlerOption) (string, http.Handler) {
+// If your server must support older tools that expect v1alpha of the server
+// reflection API, you should use NewHandlerV1Alpha in addition to
+// NewHandlerV1.
+func NewHandlerV1Alpha(reflector *Reflector, options ...connect.HandlerOption) (string, http.Handler) {
 	// v1 is binary-compatible with v1alpha1, so we only need to change paths.
-	return newHandler(reflector, "/grpc.reflection.v1alpha1.ServerReflection/", options)
+	return newHandler(reflector, "/grpc.reflection.v1alpha.ServerReflection/", options)
 }
 
 // Reflectors implement the underlying logic for gRPC's protobuf server
