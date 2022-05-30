@@ -14,15 +14,15 @@
 
 // Package grpcreflect enables any net/http server, including those built with
 // Connect, to handle gRPC's server reflection API. This lets ad-hoc debugging
-// tools call your protobuf services and print the responses without a copy of
+// tools call your Protobuf services and print the responses without a copy of
 // the schema.
 //
 // The exposed reflection API is wire compatible with Google's gRPC
 // implementations, so it works with grpcurl, grpcui, BloomRPC, and many other
 // tools.
 //
-// The core Connect package is github.com/bufbuild/connect. Documentation is
-// available at https://bufconnect.com/.
+// The core Connect package is github.com/bufbuild/connect-go. Documentation is
+// available at https://connect.build.
 package grpcreflect
 
 import (
@@ -46,20 +46,18 @@ import (
 //
 // Note that because the reflection API requires bidirectional streaming, the
 // returned handler doesn't support HTTP/1.1. If your server must also support
-// older tools that use the v1alpha1 server reflection API, see NewHandlerV1Alpha1.
+// older tools that use the v1alpha server reflection API, see NewHandlerV1Alpha.
 func NewHandlerV1(reflector *Reflector, options ...connect.HandlerOption) (string, http.Handler) {
 	return newHandler(reflector, "/grpc.reflection.v1.ServerReflection/", options)
 }
 
-// NewHandlerV1Alpha constructs an implementation of v1alpha1 of the gRPC server
-// reflection API. It returns an HTTP handler and the path on which to mount
-// it.
+// NewHandlerV1Alpha constructs an implementation of v1alpha of the gRPC server
+// reflection API, which is useful to support tools that haven't updated to the
+// v1 API. It returns an HTTP handler and the path on which to mount it.
 //
-// If your server must support older tools that expect v1alpha of the server
-// reflection API, you should use NewHandlerV1Alpha in addition to
-// NewHandlerV1.
+// Like NewHandlerV1, the returned handler doesn't support HTTP/1.1.
 func NewHandlerV1Alpha(reflector *Reflector, options ...connect.HandlerOption) (string, http.Handler) {
-	// v1 is binary-compatible with v1alpha1, so we only need to change paths.
+	// v1 is binary-compatible with v1alpha, so we only need to change paths.
 	return newHandler(reflector, "/grpc.reflection.v1alpha.ServerReflection/", options)
 }
 
@@ -71,7 +69,7 @@ func NewHandlerV1Alpha(reflector *Reflector, options ...connect.HandlerOption) (
 // extension compiled into your binary. Think twice before including the
 // default Reflector in a public API.
 //
-// For more information, see:
+// For more information, see
 // https://github.com/grpc/grpc-go/blob/master/Documentation/server-reflection-tutorial.md,
 // https://github.com/grpc/grpc/blob/master/doc/server-reflection.md, and
 // https://github.com/fullstorydev/grpcurl.
@@ -86,7 +84,7 @@ type Reflector struct {
 // use an alternate source of extension information.
 //
 // To build a simpler Reflector that supports a static list of services using
-// information from the package-global protobuf registry, use
+// information from the package-global Protobuf registry, use
 // NewStaticReflector.
 func NewReflector(namer Namer, options ...Option) *Reflector {
 	reflector := &Reflector{
@@ -101,10 +99,10 @@ func NewReflector(namer Namer, options ...Option) *Reflector {
 }
 
 // NewStaticReflector constructs a simple Reflector that supports a static list
-// of services using information from the package-global protobuf registry. For
+// of services using information from the package-global Protobuf registry. For
 // a more configurable Reflector, use NewReflector.
 //
-// The supplied strings should be fully-qualified protobuf service names (for
+// The supplied strings should be fully-qualified Protobuf service names (for
 // example, "acme.user.v1.UserService"). Generated Connect service files
 // have this declared as a constant.
 func NewStaticReflector(services ...string) *Reflector {
@@ -129,7 +127,7 @@ func (r *Reflector) serverReflectionInfo(
 			return err
 		}
 		// The server reflection API sends file descriptors as uncompressed
-		// protobuf-serialized bytes.
+		// Protobuf-serialized bytes.
 		response := &reflectionv1.ServerReflectionResponse{
 			ValidHost:       request.Host,
 			OriginalRequest: request,
@@ -256,7 +254,7 @@ func (r *Reflector) getAllExtensionNumbersOfType(fqn string) ([]int32, error) {
 	return nums, nil
 }
 
-// A Namer lists the fully-qualified protobuf service names available for
+// A Namer lists the fully-qualified Protobuf service names available for
 // reflection (for example, "acme.user.v1.UserService"). Namers must be safe to
 // call concurrently.
 type Namer interface {
@@ -268,13 +266,13 @@ type Option interface {
 	apply(*Reflector)
 }
 
-// WithExtensionResolver sets the resolver used to find protobuf extensions. By
+// WithExtensionResolver sets the resolver used to find Protobuf extensions. By
 // default, Reflectors use protoregistry.GlobalTypes.
 func WithExtensionResolver(resolver ExtensionResolver) Option {
 	return &extensionResolverOption{resolver: resolver}
 }
 
-// WithExtensionResolver sets the resolver used to find protobuf type
+// WithExtensionResolver sets the resolver used to find Protobuf type
 // information (typically called a "descriptor"). By default, Reflectors use
 // protoregistry.GlobalFiles.
 func WithDescriptorResolver(resolver protodesc.Resolver) Option {
@@ -282,7 +280,7 @@ func WithDescriptorResolver(resolver protodesc.Resolver) Option {
 }
 
 // An ExtensionResolver lets server reflection implementations query details
-// about the registered protobuf extensions. protoregistry.GlobalTypes
+// about the registered Protobuf extensions. protoregistry.GlobalTypes
 // implements ExtensionResolver.
 //
 // ExtensionResolvers must be safe to call concurrently.

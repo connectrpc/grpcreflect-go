@@ -6,8 +6,8 @@ connect-grpcreflect-go
 [![GoDoc](https://pkg.go.dev/badge/github.com/bufbuild/connect-grpcreflect-go.svg)](https://pkg.go.dev/github.com/bufbuild/connect-grpcreflect-go)
 
 `connect-grpcreflect-go` adds support for gRPC's server reflection API to any
-`net/http` server&mdash;including those built with [Connect][docs]! With server
-reflection enabled, ad-hoc debugging tools can call your gRPC-compatible
+`net/http` server &mdash; including those built with [Connect][docs]. With
+server reflection enabled, ad-hoc debugging tools can call your gRPC-compatible
 handlers and print the responses *without* a copy of the schema.
 
 The exposed reflection API is wire compatible with Google's gRPC
@@ -22,6 +22,8 @@ package main
 import (
   "net/http"
 
+  "golang.org/x/net/http2"
+  "golang.org/x/net/http2/h2c"
   grpcreflect "github.com/bufbuild/connect-grpcreflect-go"
 )
 
@@ -34,15 +36,24 @@ func main() {
     // for these fully-qualified protobuf service names, so you'd more likely
     // reference userv1.UserServiceName and groupv1.GroupServiceName.
   )
-  mux.Handle(grpcreflect.NewHandler(reflector))
-  http.ListenAndServeTLS(":8081", "server.crt", "server.key", mux)
+  mux.Handle(grpcreflect.NewHandlerV1(reflector))
+  // Many tools still expect the older version of the server reflection API, so
+  // most servers should mount both handlers.
+  mux.Handle(grpcreflect.NewHandlerV1Alpha(reflector))
+  // If you don't need to support HTTP/2 without TLS (h2c), you can drop
+  // x/net/http2 and use http.ListenAndServeTLS instead.
+  http.ListenAndServe(
+    ":8080",
+    h2c.NewHandler(mux, &http2.Server{}),
+  )
 }
 ```
 
 ## Status
 
-Like [Connect][] itself, `connect-grpcreflect-go` is in _beta_. We plan to tag a
-release candidate in July 2022 and stable v1 soon after the Go 1.19 release.
+Like [`connect-go`][connect], `connect-grpcreflect-go` is a release
+candidate. We plan to tag further release candidates as necessary and a stable
+v1 soon after the Go 1.19 release.
 
 ## Support and Versioning
 
@@ -60,8 +71,8 @@ Offered under the [Apache 2 license][license].
 
 [APIv2]: https://blog.golang.org/protobuf-apiv2
 [BloomRPC]: https://github.com/bloomrpc/bloomrpc
-[connect]: https://github.com/bufbuild/connect
-[docs]: https://bufconnect.com
+[connect]: https://github.com/bufbuild/connect-go
+[docs]: https://connect.build
 [go-support-policy]: https://golang.org/doc/devel/release#policy
 [grpcui]: https://github.com/fullstorydev/grpcui
 [grpcurl]: https://github.com/fullstorydev/grpcurl
