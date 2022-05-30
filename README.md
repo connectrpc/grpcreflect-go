@@ -6,13 +6,17 @@ connect-grpcreflect-go
 [![GoDoc](https://pkg.go.dev/badge/github.com/bufbuild/connect-grpcreflect-go.svg)](https://pkg.go.dev/github.com/bufbuild/connect-grpcreflect-go)
 
 `connect-grpcreflect-go` adds support for gRPC's server reflection API to any
-`net/http` server &mdash; including those built with [Connect][docs]. With
+`net/http` server &mdash; including those built with [Connect][connect-go]. With
 server reflection enabled, ad-hoc debugging tools can call your gRPC-compatible
 handlers and print the responses *without* a copy of the schema.
 
 The exposed reflection API is wire compatible with Google's gRPC
 implementations, so it works with [grpcurl], [grpcui], [BloomRPC], and many
 other tools.
+
+For more on Connect, see the [announcement blog post][blog], the documentation
+on [connect.build][docs] (especially the [Getting Started] guide for Go), the
+[`connect-go`][connect-go] repo, or the [demo service][demo].
 
 ## Example
 
@@ -51,7 +55,7 @@ func main() {
 
 ## Status
 
-Like [`connect-go`][connect], `connect-grpcreflect-go` is a release
+Like [`connect-go`][connect-go], `connect-grpcreflect-go` is a release
 candidate. We plan to tag further release candidates as necessary and a stable
 v1 soon after the Go 1.19 release.
 
@@ -71,7 +75,10 @@ Offered under the [Apache 2 license][license].
 
 [APIv2]: https://blog.golang.org/protobuf-apiv2
 [BloomRPC]: https://github.com/bloomrpc/bloomrpc
-[connect]: https://github.com/bufbuild/connect-go
+[Getting Started]: https://connect.build/go/getting-started
+[blog]: https://buf.build/blog/announcing-connect-a-better-grpc
+[connect-go]: https://github.com/bufbuild/connect-go
+[demo]: https://github.com/bufbuild/connect-demo
 [docs]: https://connect.build
 [go-support-policy]: https://golang.org/doc/devel/release#policy
 [grpcui]: https://github.com/fullstorydev/grpcui
