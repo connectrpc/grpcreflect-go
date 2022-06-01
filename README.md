@@ -55,11 +55,10 @@ func main() {
 
 ## Status
 
-Like [`connect-go`][connect-go], `connect-grpcreflect-go` is a beta: we rely on
-it in production, but expect the Go community to quickly discover new patterns
-for working with generics. We plan to make backward-incompatible changes as
-necessary for the next few months, with the goal of tagging a stable v1 soon
-after the Go 1.19 release.
+Like [`connect-go`][connect-go], this module is a beta: we rely on it in
+production, but we may make a few changes as we gather feedback from early
+adopters. We're planning to tag a stable v1 in October, soon after the Go 1.19
+release.
 
 ## Support and Versioning
 
