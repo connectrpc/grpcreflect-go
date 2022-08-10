@@ -8,5 +8,3 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-    allow:
-      - dependency-name: "github.com/bufbuild/connect-go"
