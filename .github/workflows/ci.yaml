@@ -32,7 +32,11 @@ jobs:
           key: ${{ runner.os }}-connect-grpcreflect-go-ci-${{ hashFiles('**/go.sum') }}
           restore-keys: ${{ runner.os }}-connect-grpcreflect-go-ci-
       - name: Test
-        run: make test && make checkgenerate
+        run: make test
+      - name: Check
+        # checkgenerate fails on 1.19.x as gofmt modifies comments.
+        if: matrix.go-version == '1.18.x'
+        run: make checkgenerate
       - name: Lint
         # Often, lint & gofmt guidelines depend on the Go version. To prevent
         # conflicting guidance, run only on the most recent supported version.
