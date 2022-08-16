@@ -65,7 +65,7 @@ func testReflector(t *testing.T, reflector *Reflector, reflectionServiceFQN stri
 	server := httptest.NewUnstartedServer(mux)
 	server.EnableHTTP2 = true
 	server.StartTLS()
-	defer server.Close()
+	t.Cleanup(server.Close)
 
 	reflectionRequestFQN := string((&reflectionv1.ServerReflectionRequest{}).
 		ProtoReflect().
@@ -140,6 +140,7 @@ func testReflector(t *testing.T, reflector *Reflector, reflectionServiceFQN stri
 	}
 
 	t.Run("list_services", func(t *testing.T) {
+		t.Parallel()
 		req := &reflectionv1.ServerReflectionRequest{
 			Host: "some-host",
 			MessageRequest: &reflectionv1.ServerReflectionRequest_ListServices{
@@ -166,6 +167,7 @@ func testReflector(t *testing.T, reflector *Reflector, reflectionServiceFQN stri
 		}
 	})
 	t.Run("file_by_filename", func(t *testing.T) {
+		t.Parallel()
 		req := &reflectionv1.ServerReflectionRequest{
 			Host: "some-host",
 			MessageRequest: &reflectionv1.ServerReflectionRequest_FileByFilename{
@@ -175,6 +177,7 @@ func testReflector(t *testing.T, reflector *Reflector, reflectionServiceFQN stri
 		assertFileDescriptorResponseContains(t, req, reflectionRequestFQN)
 	})
 	t.Run("file_by_filename_missing", func(t *testing.T) {
+		t.Parallel()
 		req := &reflectionv1.ServerReflectionRequest{
 			Host: "some-host",
 			MessageRequest: &reflectionv1.ServerReflectionRequest_FileByFilename{
@@ -184,6 +187,7 @@ func testReflector(t *testing.T, reflector *Reflector, reflectionServiceFQN stri
 		assertFileDescriptorResponseNotFound(t, req)
 	})
 	t.Run("file_containing_symbol", func(t *testing.T) {
+		t.Parallel()
 		req := &reflectionv1.ServerReflectionRequest{
 			Host: "some-host",
 			MessageRequest: &reflectionv1.ServerReflectionRequest_FileContainingSymbol{
@@ -193,6 +197,7 @@ func testReflector(t *testing.T, reflector *Reflector, reflectionServiceFQN stri
 		assertFileDescriptorResponseContains(t, req, "reflection.proto")
 	})
 	t.Run("file_containing_symbol_missing", func(t *testing.T) {
+		t.Parallel()
 		req := &reflectionv1.ServerReflectionRequest{
 			Host: "some-host",
 			MessageRequest: &reflectionv1.ServerReflectionRequest_FileContainingSymbol{
@@ -202,6 +207,7 @@ func testReflector(t *testing.T, reflector *Reflector, reflectionServiceFQN stri
 		assertFileDescriptorResponseNotFound(t, req)
 	})
 	t.Run("file_containing_extension", func(t *testing.T) {
+		t.Parallel()
 		req := &reflectionv1.ServerReflectionRequest{
 			Host: "some-host",
 			MessageRequest: &reflectionv1.ServerReflectionRequest_FileContainingExtension{
@@ -214,6 +220,7 @@ func testReflector(t *testing.T, reflector *Reflector, reflectionServiceFQN stri
 		assertFileDescriptorResponseContains(t, req, "reflecttest_ext.proto")
 	})
 	t.Run("file_containing_extension_missing", func(t *testing.T) {
+		t.Parallel()
 		req := &reflectionv1.ServerReflectionRequest{
 			Host: "some-host",
 			MessageRequest: &reflectionv1.ServerReflectionRequest_FileContainingExtension{
@@ -226,6 +233,7 @@ func testReflector(t *testing.T, reflector *Reflector, reflectionServiceFQN stri
 		assertFileDescriptorResponseNotFound(t, req)
 	})
 	t.Run("all_extension_numbers_of_type", func(t *testing.T) {
+		t.Parallel()
 		const extendableFQN = "connect.reflecttest.v1.Extendable"
 		req := &reflectionv1.ServerReflectionRequest{
 			Host: "some-host",
@@ -252,6 +260,7 @@ func testReflector(t *testing.T, reflector *Reflector, reflectionServiceFQN stri
 		}
 	})
 	t.Run("all_extension_numbers_of_type_missing", func(t *testing.T) {
+		t.Parallel()
 		req := &reflectionv1.ServerReflectionRequest{
 			Host: "some-host",
 			MessageRequest: &reflectionv1.ServerReflectionRequest_AllExtensionNumbersOfType{
