@@ -6,7 +6,7 @@ SHELL := bash
 MAKEFLAGS += --warn-undefined-variables
 MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-print-directory
-BIN=.tmp/bin
+BIN=$(abspath .tmp/bin)
 COPYRIGHT_YEARS := 2022
 LICENSE_IGNORE := -e /testdata/ -e internal/proto/connectext/
 # Set to use a different compiler. For example, `GO=go1.18rc1 make test`.
@@ -66,7 +66,7 @@ generate: $(BIN)/buf $(BIN)/protoc-gen-go $(BIN)/license-header ## Regenerate co
 
 .PHONY: upgrade
 upgrade: ## Upgrade dependencies
-	go get -u -t ./... && go mod tidy -v
+	$(GO) get -u -t ./... && $(GO) mod tidy -v
 
 .PHONY: checkgenerate
 checkgenerate:
@@ -75,17 +75,17 @@ checkgenerate:
 
 $(BIN)/buf: Makefile
 	@mkdir -p $(@D)
-	GOBIN=$(abspath $(@D)) $(GO) install github.com/bufbuild/buf/cmd/buf@v1.4.0
+	GOBIN=$(abspath $(@D)) $(GO) install github.com/bufbuild/buf/cmd/buf@v1.7.0
 
 $(BIN)/license-header: Makefile
 	@mkdir -p $(@D)
 	GOBIN=$(abspath $(@D)) $(GO) install \
-		  github.com/bufbuild/buf/private/pkg/licenseheader/cmd/license-header@v1.4.0
+		  github.com/bufbuild/buf/private/pkg/licenseheader/cmd/license-header@v1.7.0
 
 $(BIN)/golangci-lint: Makefile
 	@mkdir -p $(@D)
-	GOBIN=$(abspath $(@D)) $(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.46.2
+	GOBIN=$(abspath $(@D)) $(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.48.0
 
 $(BIN)/protoc-gen-go: Makefile
 	@mkdir -p $(@D)
-	GOBIN=$(abspath $(@D)) $(GO) install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28.0
+	GOBIN=$(abspath $(@D)) $(GO) install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28.1

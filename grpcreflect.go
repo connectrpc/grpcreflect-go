@@ -272,7 +272,7 @@ func WithExtensionResolver(resolver ExtensionResolver) Option {
 	return &extensionResolverOption{resolver: resolver}
 }
 
-// WithExtensionResolver sets the resolver used to find Protobuf type
+// WithDescriptorResolver sets the resolver used to find Protobuf type
 // information (typically called a "descriptor"). By default, Reflectors use
 // protoregistry.GlobalFiles.
 func WithDescriptorResolver(resolver protodesc.Resolver) Option {
