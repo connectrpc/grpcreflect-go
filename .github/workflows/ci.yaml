@@ -33,12 +33,8 @@ jobs:
           restore-keys: ${{ runner.os }}-connect-grpcreflect-go-ci-
       - name: Test
         run: make test
-      - name: Check
-        # checkgenerate fails on 1.19.x as gofmt modifies comments.
-        if: matrix.go-version == '1.18.x'
-        run: make checkgenerate
       - name: Lint
         # Often, lint & gofmt guidelines depend on the Go version. To prevent
         # conflicting guidance, run only on the most recent supported version.
-        if: matrix.go-version == '1.18.x'
-        run: make lint
+        if: matrix.go-version == '1.19.x'
+        run: make checkgenerate && make lint
