@@ -53,22 +53,15 @@ func main() {
 }
 ```
 
-## Status
+## Status: Stable
 
-Like [`connect-go`][connect-go], this module is a beta: we rely on it in
-production, but we may make a few changes as we gather feedback from early
-adopters. We're planning to tag a stable v1 in October, soon after the Go 1.19
-release.
+This module is stable. It supports:
 
-## Support and Versioning
+* The [two most recent major releases][go-support-policy] of Go.
+* [APIv2] of Protocol Buffers in Go (`google.golang.org/protobuf`).
 
-`connect-grpcreflect-go` supports:
-
-* The [two most recent major releases][go-support-policy] of Go, with a minimum
-  of Go 1.18.
-* [APIv2][] of protocol buffers in Go (`google.golang.org/protobuf`).
-
-Within those parameters, it follows semantic versioning.
+Within those parameters, `connect-grpcreflect-go` follows semantic versioning.
+We will _not_ make breaking changes in the 1.x series of releases.
 
 ## Legal
 
