@@ -61,6 +61,7 @@ type ServerReflectionRequest struct {
 	// defined field and then handles them using corresponding methods.
 	//
 	// Types that are assignable to MessageRequest:
+	//
 	//	*ServerReflectionRequest_FileByFilename
 	//	*ServerReflectionRequest_FileContainingSymbol
 	//	*ServerReflectionRequest_FileContainingExtension
@@ -271,6 +272,7 @@ type ServerReflectionResponse struct {
 	// in the request.
 	//
 	// Types that are assignable to MessageResponse:
+	//
 	//	*ServerReflectionResponse_FileDescriptorResponse
 	//	*ServerReflectionResponse_AllExtensionNumbersResponse
 	//	*ServerReflectionResponse_ListServicesResponse
