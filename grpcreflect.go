@@ -42,9 +42,9 @@ import (
 )
 
 const (
-	serviceNameV1      = "/grpc.reflection.v1.ServerReflection/"
-	serviceNameV1Alpha = "/grpc.reflection.v1alpha.ServerReflection/"
-	methodName         = "ServerReflectionInfo"
+	serviceURLPathV1      = "/grpc.reflection.v1.ServerReflection/"
+	serviceURLPathV1Alpha = "/grpc.reflection.v1alpha.ServerReflection/"
+	methodName            = "ServerReflectionInfo"
 )
 
 // NewHandlerV1 constructs an implementation of v1 of the gRPC server reflection
@@ -54,7 +54,7 @@ const (
 // returned handler doesn't support HTTP/1.1. If your server must also support
 // older tools that use the v1alpha server reflection API, see NewHandlerV1Alpha.
 func NewHandlerV1(reflector *Reflector, options ...connect.HandlerOption) (string, http.Handler) {
-	return newHandler(reflector, serviceNameV1, options)
+	return newHandler(reflector, serviceURLPathV1, options)
 }
 
 // NewHandlerV1Alpha constructs an implementation of v1alpha of the gRPC server
@@ -64,7 +64,7 @@ func NewHandlerV1(reflector *Reflector, options ...connect.HandlerOption) (strin
 // Like NewHandlerV1, the returned handler doesn't support HTTP/1.1.
 func NewHandlerV1Alpha(reflector *Reflector, options ...connect.HandlerOption) (string, http.Handler) {
 	// v1 is binary-compatible with v1alpha, so we only need to change paths.
-	return newHandler(reflector, serviceNameV1Alpha, options)
+	return newHandler(reflector, serviceURLPathV1Alpha, options)
 }
 
 // Reflector implements the underlying logic for gRPC's protobuf server
@@ -345,9 +345,9 @@ func newNotFoundResponse(err error) *reflectionv1.ServerReflectionResponse_Error
 	}
 }
 
-func newHandler(reflector *Reflector, serviceName string, options []connect.HandlerOption) (string, http.Handler) {
-	return serviceName, connect.NewBidiStreamHandler(
-		serviceName+methodName,
+func newHandler(reflector *Reflector, servicePath string, options []connect.HandlerOption) (string, http.Handler) {
+	return servicePath, connect.NewBidiStreamHandler(
+		servicePath+methodName,
 		reflector.serverReflectionInfo,
 		options...,
 	)
