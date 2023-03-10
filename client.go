@@ -136,7 +136,7 @@ func IsReflectionStreamError(err error) bool {
 // downloaded (since different servers could potentially have different versions of reflection
 // information).
 type ClientStream struct {
-	ctx    context.Context
+	ctx    context.Context //nolint:containedctx
 	client *Client
 	clientStreamOptions
 

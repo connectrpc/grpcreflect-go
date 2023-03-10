@@ -67,7 +67,8 @@ func testClient(t *testing.T, register func(server *http.ServeMux)) {
 		}
 	})
 
-	expectConnectError := func(t *testing.T, err error, code connect.Code) {
+	expectConnectNotFoundError := func(t *testing.T, err error) {
+		t.Helper()
 		if err == nil {
 			t.Fatal("expected error but got none")
 		}
@@ -84,6 +85,7 @@ func testClient(t *testing.T, register func(server *http.ServeMux)) {
 	}
 
 	expectFileDescriptorsContaining := func(t *testing.T, files []*descriptorpb.FileDescriptorProto, err error, path string) {
+		t.Helper()
 		if err != nil {
 			t.Fatalf("unexpected err: %v", err)
 		}
@@ -121,7 +123,7 @@ func testClient(t *testing.T, register func(server *http.ServeMux)) {
 	t.Run("file_by_filename_missing", func(t *testing.T) {
 		t.Parallel()
 		_, err := stream.FileByFilename("foo/bar/baz.proto")
-		expectConnectError(t, err, connect.CodeNotFound)
+		expectConnectNotFoundError(t, err)
 	})
 
 	t.Run("file_containing_symbol", func(t *testing.T) {
@@ -133,7 +135,7 @@ func testClient(t *testing.T, register func(server *http.ServeMux)) {
 	t.Run("file_containing_symbol_missing", func(t *testing.T) {
 		t.Parallel()
 		_, err := stream.FileContainingSymbol("foo.bar.baz.Bedazzle")
-		expectConnectError(t, err, connect.CodeNotFound)
+		expectConnectNotFoundError(t, err)
 	})
 
 	t.Run("file_containing_extension", func(t *testing.T) {
@@ -145,7 +147,7 @@ func testClient(t *testing.T, register func(server *http.ServeMux)) {
 	t.Run("file_containing_extension_missing", func(t *testing.T) {
 		t.Parallel()
 		_, err := stream.FileContainingExtension("foo.bar.baz.Bedazzle", 12345)
-		expectConnectError(t, err, connect.CodeNotFound)
+		expectConnectNotFoundError(t, err)
 	})
 
 	t.Run("all_extensions_for_message", func(t *testing.T) {
@@ -163,6 +165,6 @@ func testClient(t *testing.T, register func(server *http.ServeMux)) {
 	t.Run("all_extensions_for_message_missing", func(t *testing.T) {
 		t.Parallel()
 		_, err := stream.AllExtensionNumbers("foo.bar.baz.Bedazzle")
-		expectConnectError(t, err, connect.CodeNotFound)
+		expectConnectNotFoundError(t, err)
 	})
 }
