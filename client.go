@@ -30,6 +30,13 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
+// Client is a Connect client for the server reflection service.
+type Client struct {
+	clientV1        *reflectClient
+	clientV1Alpha   *reflectClient
+	v1unimplemented atomic.Bool
+}
+
 // NewClient returns a client for interacting with the gRPC server reflection service.
 // The given HTTP client, base URL, and options are used to connect to the service.
 //
@@ -48,56 +55,6 @@ func NewClient(httpClient connect.HTTPClient, baseURL string, options ...connect
 		options...,
 	)
 	return &Client{clientV1: clientV1, clientV1Alpha: clientV1Alpha}
-}
-
-// Client is a Connect client for the server reflection service.
-type Client struct {
-	clientV1        *reflectClient
-	clientV1Alpha   *reflectClient
-	v1unimplemented atomic.Bool
-}
-
-type reflectClient = connect.Client[reflectionv1.ServerReflectionRequest, reflectionv1.ServerReflectionResponse]
-type reflectStream = connect.BidiStreamForClient[reflectionv1.ServerReflectionRequest, reflectionv1.ServerReflectionResponse]
-
-// ClientStreamOption is an option that can be provided when calling [Client.NewStream].
-type ClientStreamOption interface {
-	apply(*clientStreamOptions)
-}
-
-type clientStreamOptions struct {
-	host    string
-	headers http.Header
-}
-
-// WithRequestHeaders is an option that allows the caller to provide the request headers
-// that will be sent when a stream is created.
-func WithRequestHeaders(headers http.Header) ClientStreamOption {
-	return &withRequestHeaders{headers: headers}
-}
-
-type withRequestHeaders struct {
-	headers http.Header
-}
-
-func (w *withRequestHeaders) apply(options *clientStreamOptions) {
-	options.headers = w.headers
-}
-
-// WithReflectionHost is an option that allows the caller to provide the hostname that
-// will be included with all requests on the stream. This may be used by the server
-// when deciding what source of reflection information to use (which could include
-// forwarding the request message to a different host).
-func WithReflectionHost(host string) ClientStreamOption {
-	return &withReflectionHost{host: host}
-}
-
-type withReflectionHost struct {
-	host string
-}
-
-func (w *withReflectionHost) apply(options *clientStreamOptions) {
-	options.host = w.host
 }
 
 // NewStream creates a new stream that is used to download reflection information from
@@ -121,12 +78,23 @@ func (c *Client) NewStream(ctx context.Context, options ...ClientStreamOption) *
 	return clientStream
 }
 
-// IsReflectionStreamError returns true if the given error was the result of a [ClientStream]
-// failing. If the stream returns an error for which this function returns false, only the
-// one operation failed; the stream is still intact and may be used for subsequent operations.
-func IsReflectionStreamError(err error) bool {
-	var streamErr *streamError
-	return errors.As(err, &streamErr)
+// ClientStreamOption is an option that can be provided when calling [Client.NewStream].
+type ClientStreamOption interface {
+	apply(*clientStreamOptions)
+}
+
+// WithRequestHeaders is an option that allows the caller to provide the request headers
+// that will be sent when a stream is created.
+func WithRequestHeaders(headers http.Header) ClientStreamOption {
+	return &withRequestHeaders{headers: headers}
+}
+
+// WithReflectionHost is an option that allows the caller to provide the hostname that
+// will be included with all requests on the stream. This may be used by the server
+// when deciding what source of reflection information to use (which could include
+// forwarding the request message to a different host).
+func WithReflectionHost(host string) ClientStreamOption {
+	return &withReflectionHost{host: host}
 }
 
 // ClientStream represents a bidirectional stream for downloading reflection information.
@@ -143,36 +111,6 @@ type ClientStream struct {
 	mu     sync.Mutex
 	stream *reflectStream
 	isV1   bool
-}
-
-func (cs *ClientStream) getStream() *reflectStream {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-	return cs.getStreamLocked()
-}
-
-func (cs *ClientStream) getStreamLocked() *reflectStream {
-	if cs.stream != nil {
-		return cs.stream
-	}
-	var connectClient *reflectClient
-	if cs.client.v1unimplemented.Load() {
-		connectClient = cs.client.clientV1Alpha
-		cs.isV1 = false
-	} else {
-		connectClient = cs.client.clientV1
-		cs.isV1 = true
-	}
-	stream := connectClient.CallBidiStream(cs.ctx)
-	for k, v := range cs.headers {
-		stream.RequestHeader()[k] = v
-	}
-	// we can eagerly send request headers; we can ignore return
-	// value because caller will see any errors when calling any
-	// other method on returned stream
-	_ = stream.Send(nil)
-	cs.stream = stream
-	return cs.stream
 }
 
 // Spec returns the specification for the reflection RPC.
@@ -226,10 +164,6 @@ func (cs *ClientStream) ListServices() ([]protoreflect.FullName, error) {
 		names[i] = protoreflect.FullName(svc.Name)
 	}
 	return names, nil
-}
-
-func errWrongResponseType(resp *reflectionv1.ServerReflectionResponse, operation string) error {
-	return fmt.Errorf("protocol error: wrong response type %T in reply to %s", resp.MessageResponse, operation)
 }
 
 // FileByFilename retrieves the descriptor for the file with the given path and name.
@@ -327,6 +261,57 @@ func (cs *ClientStream) AllExtensionNumbers(messageName protoreflect.FullName) (
 	return extNumbers, nil
 }
 
+// Close closes the stream and returns any trailers sent by the server.
+func (cs *ClientStream) Close() (http.Header, error) {
+	stream := cs.getStream()
+
+	// half-close
+	_ = stream.CloseRequest()
+	// await final EOF from server (which is also when we get trailers)
+	msg, err := stream.Receive()
+	if err == nil {
+		err = fmt.Errorf("protocol error: server sent unexpected response message (%s)", respType(msg))
+	} else if errors.Is(err, io.EOF) {
+		err = nil
+	}
+	// now we can close the stream and retrieve the trailers
+	closeErr := stream.CloseResponse()
+	if err == nil && closeErr != nil {
+		err = closeErr
+	}
+	return stream.ResponseTrailer(), err
+}
+
+func (cs *ClientStream) getStream() *reflectStream {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	return cs.getStreamLocked()
+}
+
+func (cs *ClientStream) getStreamLocked() *reflectStream {
+	if cs.stream != nil {
+		return cs.stream
+	}
+	var connectClient *reflectClient
+	if cs.client.v1unimplemented.Load() {
+		connectClient = cs.client.clientV1Alpha
+		cs.isV1 = false
+	} else {
+		connectClient = cs.client.clientV1
+		cs.isV1 = true
+	}
+	stream := connectClient.CallBidiStream(cs.ctx)
+	for k, v := range cs.headers {
+		stream.RequestHeader()[k] = v
+	}
+	// we can eagerly send request headers; we can ignore return
+	// value because caller will see any errors when calling any
+	// other method on returned stream
+	_ = stream.Send(nil)
+	cs.stream = stream
+	return cs.stream
+}
+
 func (cs *ClientStream) getDescriptors(operation string, req *reflectionv1.ServerReflectionRequest) ([]*descriptorpb.FileDescriptorProto, error) {
 	resp, err := cs.send(req)
 	if err != nil {
@@ -398,25 +383,52 @@ func (cs *ClientStream) shouldRetryLocked(err error) bool {
 	return false
 }
 
-// Close closes the stream and returns any trailers sent by the server.
-func (cs *ClientStream) Close() (http.Header, error) {
-	stream := cs.getStream()
+type reflectClient = connect.Client[reflectionv1.ServerReflectionRequest, reflectionv1.ServerReflectionResponse]
+type reflectStream = connect.BidiStreamForClient[reflectionv1.ServerReflectionRequest, reflectionv1.ServerReflectionResponse]
 
-	// half-close
-	_ = stream.CloseRequest()
-	// await final EOF from server (which is also when we get trailers)
-	msg, err := stream.Receive()
-	if err == nil {
-		err = fmt.Errorf("protocol error: server sent unexpected response message (%s)", respType(msg))
-	} else if errors.Is(err, io.EOF) {
-		err = nil
-	}
-	// now we can close the stream and retrieve the trailers
-	closeErr := stream.CloseResponse()
-	if err == nil && closeErr != nil {
-		err = closeErr
-	}
-	return stream.ResponseTrailer(), err
+type clientStreamOptions struct {
+	host    string
+	headers http.Header
+}
+
+type withRequestHeaders struct {
+	headers http.Header
+}
+
+func (w *withRequestHeaders) apply(options *clientStreamOptions) {
+	options.headers = w.headers
+}
+
+type withReflectionHost struct {
+	host string
+}
+
+func (w *withReflectionHost) apply(options *clientStreamOptions) {
+	options.host = w.host
+}
+
+type streamError struct {
+	err error
+}
+
+func (e *streamError) Error() string {
+	return e.err.Error()
+}
+
+func (e *streamError) Unwrap() error {
+	return e.err
+}
+
+// IsReflectionStreamError returns true if the given error was the result of a [ClientStream]
+// failing. If the stream returns an error for which this function returns false, only the
+// one operation failed; the stream is still intact and may be used for subsequent operations.
+func IsReflectionStreamError(err error) bool {
+	var streamErr *streamError
+	return errors.As(err, &streamErr)
+}
+
+func errWrongResponseType(resp *reflectionv1.ServerReflectionResponse, operation string) error {
+	return fmt.Errorf("protocol error: wrong response type %T in reply to %s", resp.MessageResponse, operation)
 }
 
 func respType(msg *reflectionv1.ServerReflectionResponse) string {
@@ -434,16 +446,4 @@ func respType(msg *reflectionv1.ServerReflectionResponse) string {
 	default:
 		return fmt.Sprintf("unknown: %T", resp)
 	}
-}
-
-type streamError struct {
-	err error
-}
-
-func (e *streamError) Error() string {
-	return e.err.Error()
-}
-
-func (e *streamError) Unwrap() error {
-	return e.err
 }
