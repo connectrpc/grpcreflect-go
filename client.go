@@ -62,7 +62,7 @@ func NewClient(httpClient connect.HTTPClient, baseURL string, options ...connect
 // HTTP/2. The [ClientStream.Close] method should be called when the caller is done
 // with the stream.
 //
-// If any operation returns an error for which [IsReflectionStreamError] returns true,
+// If any operation returns an error for which [IsReflectionStreamBroken] returns true,
 // the stream is broken and all subsequent operations will fail. If the error is not
 // a permanent error, the caller should create another stream and try again.
 func (c *Client) NewStream(ctx context.Context, options ...ClientStreamOption) *ClientStream {
@@ -141,7 +141,7 @@ func (cs *ClientStream) ResponseHeader() http.Header {
 // ListServices retrieves the fully-qualified names for services exposed the server.
 //
 // This may return a [*connect.Error] indicating the reason the list of services could
-// not be retrieved. But if [IsReflectionStreamError] returns true for the returned error,
+// not be retrieved. But if [IsReflectionStreamBroken] returns true for the returned error,
 // the stream is broken and cannot be used for further operations.
 //
 // This operation sends a request message on the stream and waits for the corresponding
@@ -172,7 +172,7 @@ func (cs *ClientStream) ListServices() ([]protoreflect.FullName, error) {
 // some of those files on this stream, they may be omitted from the response.
 //
 // This may return a [*connect.Error] indicating the reason the file could not be retrieved
-// (such as "Not Found" if the given path is not known). But if [IsReflectionStreamError]
+// (such as "Not Found" if the given path is not known). But if [IsReflectionStreamBroken]
 // returns true for the returned error, the stream is broken and cannot be used for further
 // operations.
 //
@@ -193,7 +193,7 @@ func (cs *ClientStream) FileByFilename(filename string) ([]*descriptorpb.FileDes
 // files on this stream, they may be omitted from the response.
 //
 // This may return a [*connect.Error] indicating the reason the file could not be retrieved
-// (such as "Not Found" if the given element is not known). But if [IsReflectionStreamError]
+// (such as "Not Found" if the given element is not known). But if [IsReflectionStreamBroken]
 // returns true for the returned error, the stream is broken and cannot be used for further
 // operations.
 //
@@ -214,7 +214,7 @@ func (cs *ClientStream) FileContainingSymbol(name protoreflect.FullName) ([]*des
 // of those files on this stream, they may be omitted from the response.
 //
 // This may return a [*connect.Error] indicating the reason the file could not be retrieved
-// (such as "Not Found" if the given extension is not known). But if [IsReflectionStreamError]
+// (such as "Not Found" if the given extension is not known). But if [IsReflectionStreamBroken]
 // returns true for the returned error, the stream is broken and cannot be used for further
 // operations.
 //
@@ -236,7 +236,7 @@ func (cs *ClientStream) FileContainingExtension(messageName protoreflect.FullNam
 //
 // This may return a [*connect.Error] indicating the reason the list of extension numbers
 // could not be retrieved (such as "Not Found" if the given message is not known). But if
-// [IsReflectionStreamError] returns true for the returned error, the stream is broken and
+// [IsReflectionStreamBroken] returns true for the returned error, the stream is broken and
 // cannot be used for further operations.
 //
 // This operation sends a request message on the stream and waits for the corresponding
@@ -338,7 +338,7 @@ func (cs *ClientStream) send(req *reflectionv1.ServerReflectionRequest) (*reflec
 	// as the requests. So to prevent concurrent use from interleaving replies (which would
 	// require much more logic here to properly correlate replies with requests), we send and
 	// receive while holding the mutex. This means that this API does not support pipelining
-	// reflection requests (which could in theory reduce latency, but only when the client
+	// reflection requests. In theory, pipelining could reduce latency, but only if the client
 	// knows all of their requests up-front, which is rarely the case since subsequent calls
 	// often depend on the data in prior responses.
 	cs.mu.Lock()
@@ -366,15 +366,14 @@ func (cs *ClientStream) send(req *reflectionv1.ServerReflectionRequest) (*reflec
 			return nil, &streamError{err: err}
 		}
 		if errResp := resp.GetErrorResponse(); errResp != nil {
-			return nil, connect.NewError(connect.Code(errResp.ErrorCode), errors.New(errResp.ErrorMessage))
+			return nil, connect.NewWireError(connect.Code(errResp.ErrorCode), errors.New(errResp.ErrorMessage))
 		}
 		return resp, nil
 	}
 }
 
 func (cs *ClientStream) shouldRetryLocked(err error) bool {
-	var connectError *connect.Error
-	if errors.As(err, &connectError) && connectError.Code() == connect.CodeUnimplemented && cs.isV1 {
+	if connect.CodeOf(err) == connect.CodeUnimplemented && cs.isV1 {
 		// retry w/ v1alpha
 		cs.stream = nil
 		cs.client.v1unimplemented.Store(true)
@@ -419,10 +418,10 @@ func (e *streamError) Unwrap() error {
 	return e.err
 }
 
-// IsReflectionStreamError returns true if the given error was the result of a [ClientStream]
+// IsReflectionStreamBroken returns true if the given error was the result of a [ClientStream]
 // failing. If the stream returns an error for which this function returns false, only the
 // one operation failed; the stream is still intact and may be used for subsequent operations.
-func IsReflectionStreamError(err error) bool {
+func IsReflectionStreamBroken(err error) bool {
 	var streamErr *streamError
 	return errors.As(err, &streamErr)
 }
@@ -434,7 +433,7 @@ func errWrongResponseType(resp *reflectionv1.ServerReflectionResponse, operation
 func respType(msg *reflectionv1.ServerReflectionResponse) string {
 	switch resp := msg.MessageResponse.(type) {
 	case *reflectionv1.ServerReflectionResponse_FileDescriptorResponse:
-		return "fil_descriptor_response"
+		return "file_descriptor_response"
 	case *reflectionv1.ServerReflectionResponse_AllExtensionNumbersResponse:
 		return "all_extension_numbers_response"
 	case *reflectionv1.ServerReflectionResponse_ListServicesResponse:

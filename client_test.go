@@ -72,7 +72,7 @@ func testClient(t *testing.T, register func(server *http.ServeMux)) {
 		if err == nil {
 			t.Fatal("expected error but got none")
 		}
-		if IsReflectionStreamError(err) {
+		if IsReflectionStreamBroken(err) {
 			t.Fatalf("error should not be a stream error but is: %v", err)
 		}
 		var connectError *connect.Error
