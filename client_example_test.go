@@ -17,9 +17,10 @@ package grpcreflect_test
 import (
 	"context"
 	"fmt"
-	"github.com/bufbuild/connect-grpcreflect-go"
 	"log"
 	"net/http"
+
+	"github.com/bufbuild/connect-grpcreflect-go"
 )
 
 func ExampleNewClient() {
