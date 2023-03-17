@@ -1,6 +1,6 @@
 module github.com/bufbuild/connect-grpcreflect-go
 
-go 1.18
+go 1.19
 
 require (
 	github.com/bufbuild/connect-go v1.5.1
