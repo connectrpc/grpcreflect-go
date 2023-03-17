@@ -29,35 +29,32 @@ import (
 	"google.golang.org/protobuf/testing/protocmp"
 )
 
+const actualServiceName = "connectext.grpc.reflection.v1.ServerReflection"
+
 func TestReflection(t *testing.T) {
-	const (
-		actualService = "connectext.grpc.reflection.v1.ServerReflection"
-		nameV1Alpha   = "grpc.reflection.v1alpha.ServerReflection"
-		nameV1        = "grpc.reflection.v1.ServerReflection"
-	)
 	t.Parallel()
 	t.Run("static", func(t *testing.T) {
 		t.Parallel()
-		reflector := NewStaticReflector(actualService)
-		testReflector(t, reflector, nameV1)
+		reflector := NewStaticReflector(actualServiceName)
+		testReflector(t, reflector, serviceURLPathV1)
 	})
 	t.Run("v1alpha1", func(t *testing.T) {
 		t.Parallel()
-		reflector := NewStaticReflector(actualService)
-		testReflector(t, reflector, nameV1Alpha)
+		reflector := NewStaticReflector(actualServiceName)
+		testReflector(t, reflector, serviceURLPathV1Alpha)
 	})
 	t.Run("options", func(t *testing.T) {
 		t.Parallel()
 		reflector := NewReflector(
-			&staticNames{names: []string{actualService}},
+			&staticNames{names: []string{actualServiceName}},
 			WithExtensionResolver(protoregistry.GlobalTypes),
 			WithDescriptorResolver(protoregistry.GlobalFiles),
 		)
-		testReflector(t, reflector, nameV1)
+		testReflector(t, reflector, serviceURLPathV1)
 	})
 }
 
-func testReflector(t *testing.T, reflector *Reflector, reflectionServiceFQN string) {
+func testReflector(t *testing.T, reflector *Reflector, servicePath string) {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.Handle(NewHandlerV1(reflector))
@@ -76,7 +73,7 @@ func testReflector(t *testing.T, reflector *Reflector, reflectionServiceFQN stri
 		reflectionv1.ServerReflectionResponse,
 	](
 		server.Client(),
-		server.URL+"/"+reflectionServiceFQN+"/ServerReflectionInfo",
+		server.URL+servicePath+methodName,
 		connect.WithGRPC(),
 	)
 	call := func(req *reflectionv1.ServerReflectionRequest) (*reflectionv1.ServerReflectionResponse, error) {
