@@ -29,5 +29,4 @@ message DoRequest {
   optional Extendable ext = 1;
 }
 
-message DoResponse {
-}
+message DoResponse {}

@@ -28,8 +28,7 @@ package connectext.grpc.reflection.v1alpha;
 service ServerReflection {
   // The reflection service is structured as a bidirectional stream, ensuring
   // all related requests go to a single server.
-  rpc ServerReflectionInfo(stream ServerReflectionRequest)
-      returns (stream ServerReflectionResponse);
+  rpc ServerReflectionInfo(stream ServerReflectionRequest) returns (stream ServerReflectionResponse);
 }
 
 // The message sent by the client when calling ServerReflectionInfo method.
