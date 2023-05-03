@@ -47,7 +47,7 @@ lintfix: $(BIN)/golangci-lint $(BIN)/buf ## Automatically fix some lint errors
 	$(BIN)/buf format -w .
 
 .PHONY: generate
-generate: $(BIN)/buf $(BIN)/protoc-gen-go $(BIN)/license-header ## Regenerate code and licenses
+generate: $(BIN)/buf $(BIN)/protoc-gen-go $(BIN)/license-header services.bin ## Regenerate code and licenses
 	rm -rf internal/gen
 	PATH=$(BIN) $(BIN)/buf generate
 	@# We want to operate on a list of modified and new files, excluding
@@ -89,3 +89,10 @@ $(BIN)/golangci-lint: Makefile
 $(BIN)/protoc-gen-go: Makefile
 	@mkdir -p $(@D)
 	GOBIN=$(abspath $(@D)) $(GO) install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28.1
+
+services.bin: $(BIN)/buf
+	$(BIN)/buf build --as-file-descriptor-set --output $(@F) \
+		buf.build/grpc/grpc:26635376b3f47a11126a0f4b4b5b6de7fe5a074a \
+		--type grpc.health.v1.Health \
+		--type grpc.reflection.v1.ServerReflection \
+		--type grpc.reflection.v1alpha.ServerReflection

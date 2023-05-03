@@ -27,14 +27,12 @@ package grpcreflect
 
 import (
 	"context"
+	_ "embed" // required for go:embed directive
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"sort"
-	"strings"
-	"sync"
-	"sync/atomic"
 
 	"github.com/bufbuild/connect-go"
 	reflectionv1 "github.com/bufbuild/connect-grpcreflect-go/internal/gen/go/connectext/grpc/reflection/v1"
@@ -75,7 +73,11 @@ var (
 		reflectV1AlphaFileName: {},
 		healthV1FileName:       {},
 	}
-	globalFiles = resolverHackForConnectext()
+
+	//go:embed services.bin
+	embeddedDescriptors []byte
+
+	globalFiles = resolverHackForConnectext(embeddedDescriptors)
 )
 
 // NewHandlerV1 constructs an implementation of v1 of the gRPC server reflection
@@ -408,74 +410,20 @@ func (n *staticNames) Names() []string {
 	return n.names
 }
 
-// hackedResolver provides hacks to workaround the fact that connect-grpcreflect-go
-// and connect-grpchealth-go use hacked "connectext.grpc..." packages in the linked-in
-// descriptors (to avoid init-time panics due to conflicts, in case calling code also
-// links in the gRPC runtime's versions of these services).
-type hackedResolver struct {
-	resolver atomic.Pointer[protodesc.Resolver]
-	init     sync.Once
-}
-
-func resolverHackForConnectext() *hackedResolver {
-	res := &hackedResolver{}
-	var delegate protodesc.Resolver = protoregistry.GlobalFiles
-	res.resolver.Store(&delegate)
-	return res
-}
-
-func (r *hackedResolver) FindFileByPath(path string) (protoreflect.FileDescriptor, error) {
-	res := *r.resolver.Load()
-	file, err := res.FindFileByPath(path)
-	if err != nil {
-		if res == protoregistry.GlobalFiles && contains(mangledFileNames, path) {
-			// we need to create "unmangled" versions of the services
-			// that connect libs have to mangle
-			res = r.doInit(res)
-			file, err = res.FindFileByPath(path)
-			if err == nil {
-				return file, nil
-			}
-		}
-		return nil, err
+func resolverHackForConnectext(data []byte) protodesc.Resolver {
+	var resolver protodesc.Resolver = protoregistry.GlobalFiles
+	var fileSet descriptorpb.FileDescriptorSet
+	if err := proto.Unmarshal(data, &fileSet); err != nil {
+		return resolver
 	}
-	return file, nil
-}
-
-func (r *hackedResolver) FindDescriptorByName(name protoreflect.FullName) (protoreflect.Descriptor, error) {
-	res := *r.resolver.Load()
-	desc, err := res.FindDescriptorByName(name)
+	files, err := protodesc.NewFiles(&fileSet)
 	if err != nil {
-		if res == protoregistry.GlobalFiles && contains(mangledServiceNames, string(name)) {
-			// we need to create "unmangled" versions of the services
-			// that connect libs have to mangle
-			res = r.doInit(res)
-			desc, err = res.FindDescriptorByName(name)
-			if err == nil {
-				return desc, nil
-			}
-		}
-		return nil, err
+		return resolver
 	}
-	return desc, nil
-}
-
-func (r *hackedResolver) doInit(original protodesc.Resolver) protodesc.Resolver {
-	res := original
-	r.init.Do(func() {
-		overrides := &protoregistry.Files{}
-		for _, name := range []protoreflect.FullName{ReflectV1ServiceName, ReflectV1AlphaServiceName, healthV1ServiceName} {
-			_, err := original.FindDescriptorByName(name)
-			if err == nil {
-				// this one is fine
-				continue
-			}
-			tryUnmangle(name, overrides)
-		}
-		res = &combinedResolver{first: overrides, second: original}
-		r.resolver.Store(&res)
-	})
-	return res
+	return &combinedResolver{
+		first:  protoregistry.GlobalFiles,
+		second: files,
+	}
 }
 
 type combinedResolver struct {
@@ -496,95 +444,4 @@ func (r *combinedResolver) FindDescriptorByName(name protoreflect.FullName) (pro
 		desc, err = r.second.FindDescriptorByName(name)
 	}
 	return desc, err
-}
-
-func tryUnmangle(name protoreflect.FullName, registry *protoregistry.Files) {
-	mangledName := "connectext." + name
-	desc, err := protoregistry.GlobalFiles.FindDescriptorByName(mangledName)
-	if err != nil {
-		// This should only happen for the health service, if the calling application
-		// hasn't actually linked in the connect-grpchealth-go module.
-		return
-	}
-	// unmangle the file descriptor
-	file := desc.ParentFile()
-	fileDescriptor := protodesc.ToFileDescriptorProto(file)
-	fileDescriptor.Package = proto.String(strings.TrimPrefix(fileDescriptor.GetPackage(), "connectext."))
-	fileDescriptor.Name = proto.String(strings.TrimPrefix(fileDescriptor.GetName(), "connectext/"))
-	unmangleReferencesInFile(fileDescriptor)
-
-	// and then rebuild it
-	if err := registerDependencies(file, registry); err != nil {
-		// Shouldn't happen, but not much we can do if it does...
-		return
-	}
-	file, err = protodesc.NewFile(fileDescriptor, registry)
-	if err != nil {
-		// Ditto: shouldn't happen, but not much we can do if it does...
-		return
-	}
-	_ = registry.RegisterFile(file)
-}
-
-func unmangleReferencesInFile(file *descriptorpb.FileDescriptorProto) {
-	for _, msg := range file.MessageType {
-		unmangleReferencesInMessage(msg)
-	}
-	for _, ext := range file.Extension {
-		unmangleReferencesInField(ext)
-	}
-	for _, svc := range file.Service {
-		for _, mtd := range svc.Method {
-			if strings.HasPrefix(mtd.GetInputType(), ".connectext.") {
-				mtd.InputType = proto.String(strings.TrimPrefix(mtd.GetInputType(), ".connectext"))
-			}
-			if strings.HasPrefix(mtd.GetOutputType(), ".connectext.") {
-				mtd.OutputType = proto.String(strings.TrimPrefix(mtd.GetOutputType(), ".connectext"))
-			}
-		}
-	}
-}
-
-func unmangleReferencesInMessage(msg *descriptorpb.DescriptorProto) {
-	for _, field := range msg.Field {
-		unmangleReferencesInField(field)
-	}
-	for _, ext := range msg.Extension {
-		unmangleReferencesInField(ext)
-	}
-	for _, nestedMsg := range msg.NestedType {
-		unmangleReferencesInMessage(nestedMsg)
-	}
-}
-
-func unmangleReferencesInField(field *descriptorpb.FieldDescriptorProto) {
-	if strings.HasPrefix(field.GetExtendee(), ".connectext.") {
-		field.Extendee = proto.String(strings.TrimPrefix(field.GetExtendee(), ".connectext"))
-	}
-	if strings.HasPrefix(field.GetTypeName(), ".connectext.") {
-		field.TypeName = proto.String(strings.TrimPrefix(field.GetTypeName(), ".connectext"))
-	}
-}
-
-func registerDependencies(file protoreflect.FileDescriptor, registry *protoregistry.Files) error {
-	imps := file.Imports()
-	for i, length := 0, imps.Len(); i < length; i++ {
-		imp := imps.Get(i).FileDescriptor
-		if _, err := registry.FindFileByPath(imp.Path()); err == nil {
-			// already registered
-			continue
-		}
-		if err := registerDependencies(imp, registry); err != nil {
-			return err
-		}
-		if err := registry.RegisterFile(imp); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func contains(set map[string]struct{}, val string) bool {
-	_, ok := set[val]
-	return ok
 }
