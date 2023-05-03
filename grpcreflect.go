@@ -32,19 +32,48 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/bufbuild/connect-go"
 	reflectionv1 "github.com/bufbuild/connect-grpcreflect-go/internal/gen/go/connectext/grpc/reflection/v1"
+	_ "github.com/bufbuild/connect-grpcreflect-go/internal/gen/go/connectext/grpc/reflection/v1alpha"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
+	"google.golang.org/protobuf/types/descriptorpb"
 )
 
 const (
-	serviceURLPathV1      = "/grpc.reflection.v1.ServerReflection/"
-	serviceURLPathV1Alpha = "/grpc.reflection.v1alpha.ServerReflection/"
+	// ReflectV1ServiceName is the fully-qualified name of the v1 version of the reflection service.
+	ReflectV1ServiceName = "grpc.reflection.v1.ServerReflection"
+	// ReflectV1AlphaServiceName is the fully-qualified name of the v1alpha version of the reflection service.
+	ReflectV1AlphaServiceName = "grpc.reflection.v1alpha.ServerReflection"
+
+	serviceURLPathV1      = "/" + ReflectV1ServiceName + "/"
+	serviceURLPathV1Alpha = "/" + ReflectV1AlphaServiceName + "/"
 	methodName            = "ServerReflectionInfo"
+
+	healthV1ServiceName    = "grpc.health.v1.Health"
+	healthV1FileName       = "grpc/health/v1/health.proto"
+	reflectV1FileName      = "grpc/reflection/v1/reflection.proto"
+	reflectV1AlphaFileName = "grpc/reflection/v1alpha/reflection.proto"
+)
+
+var (
+	mangledServiceNames = map[string]struct{}{
+		ReflectV1ServiceName:      {},
+		ReflectV1AlphaServiceName: {},
+		healthV1ServiceName:       {},
+	}
+	mangledFileNames = map[string]struct{}{
+		reflectV1FileName:      {},
+		reflectV1AlphaFileName: {},
+		healthV1FileName:       {},
+	}
+	globalFiles = resolverHackForConnectext()
 )
 
 // NewHandlerV1 constructs an implementation of v1 of the gRPC server reflection
@@ -96,7 +125,7 @@ func NewReflector(namer Namer, options ...Option) *Reflector {
 	reflector := &Reflector{
 		namer:              namer,
 		extensionResolver:  protoregistry.GlobalTypes,
-		descriptorResolver: protoregistry.GlobalFiles,
+		descriptorResolver: globalFiles,
 	}
 	for _, option := range options {
 		option.apply(reflector)
@@ -375,4 +404,185 @@ type staticNames struct {
 
 func (n *staticNames) Names() []string {
 	return n.names
+}
+
+// hackedResolver provides hacks to workaround the fact that connect-grpcreflect-go
+// and connect-grpchealth-go use hacked "connectext.grpc..." packages in the linked-in
+// descriptors (to avoid init-time panics due to conflicts, in case calling code also
+// links in the gRPC runtime's versions of these services).
+type hackedResolver struct {
+	resolver atomic.Pointer[protodesc.Resolver]
+	init     sync.Once
+}
+
+func resolverHackForConnectext() *hackedResolver {
+	res := &hackedResolver{}
+	var delegate protodesc.Resolver = protoregistry.GlobalFiles
+	res.resolver.Store(&delegate)
+	return res
+}
+
+func (r *hackedResolver) FindFileByPath(s string) (protoreflect.FileDescriptor, error) {
+	res := *r.resolver.Load()
+	file, err := res.FindFileByPath(s)
+	if err != nil {
+		if res == protoregistry.GlobalFiles && contains(mangledFileNames, s) {
+			// we need to create "unmangled" versions of the services
+			// that connect libs have to mangle
+			res = r.doInit(res)
+			file, err = res.FindFileByPath(s)
+			if err == nil {
+				return file, nil
+			}
+		}
+		return nil, err
+	}
+	return file, nil
+}
+
+func (r *hackedResolver) FindDescriptorByName(name protoreflect.FullName) (protoreflect.Descriptor, error) {
+	res := *r.resolver.Load()
+	desc, err := res.FindDescriptorByName(name)
+	if err != nil {
+		if res == protoregistry.GlobalFiles && contains(mangledServiceNames, string(name)) {
+			// we need to create "unmangled" versions of the services
+			// that connect libs have to mangle
+			res = r.doInit(res)
+			desc, err = res.FindDescriptorByName(name)
+			if err == nil {
+				return desc, nil
+			}
+		}
+		return nil, err
+	}
+	return desc, nil
+}
+
+func (r *hackedResolver) doInit(original protodesc.Resolver) protodesc.Resolver {
+	res := original
+	r.init.Do(func() {
+		overrides := &protoregistry.Files{}
+		for _, name := range []protoreflect.FullName{ReflectV1ServiceName, ReflectV1AlphaServiceName, healthV1ServiceName} {
+			_, err := original.FindDescriptorByName(name)
+			if err == nil {
+				// this one is fine
+				continue
+			}
+			tryUnmangle(name, overrides)
+		}
+		res = &combinedResolver{first: overrides, second: original}
+		r.resolver.Store(&res)
+	})
+	return res
+}
+
+type combinedResolver struct {
+	first, second protodesc.Resolver
+}
+
+func (r *combinedResolver) FindFileByPath(s string) (protoreflect.FileDescriptor, error) {
+	file, err := r.first.FindFileByPath(s)
+	if err != nil {
+		file, err = r.second.FindFileByPath(s)
+	}
+	return file, err
+}
+
+func (r *combinedResolver) FindDescriptorByName(name protoreflect.FullName) (protoreflect.Descriptor, error) {
+	desc, err := r.first.FindDescriptorByName(name)
+	if err != nil {
+		desc, err = r.second.FindDescriptorByName(name)
+	}
+	return desc, err
+}
+
+func tryUnmangle(name protoreflect.FullName, registry *protoregistry.Files) {
+	mangledName := "connectext." + name
+	desc, err := protoregistry.GlobalFiles.FindDescriptorByName(mangledName)
+	if err != nil {
+		// This should only happen for the health service, if the calling application
+		// hasn't actually linked in the connect-grpchealth-go module.
+		return
+	}
+	// unmangle the file descriptor
+	file := desc.ParentFile()
+	fileDescriptor := protodesc.ToFileDescriptorProto(file)
+	fileDescriptor.Package = proto.String(strings.TrimPrefix(fileDescriptor.GetPackage(), "connectext."))
+	fileDescriptor.Name = proto.String(strings.TrimPrefix(fileDescriptor.GetName(), "connectext/"))
+	unmangleReferencesInFile(fileDescriptor)
+
+	// and then rebuild it
+	if err := registerDependencies(file, registry); err != nil {
+		// Shouldn't happen, but not much we can do if it does...
+		return
+	}
+	file, err = protodesc.NewFile(fileDescriptor, registry)
+	if err != nil {
+		// Ditto: shouldn't happen, but not much we can do if it does...
+		return
+	}
+	_ = registry.RegisterFile(file)
+}
+
+func unmangleReferencesInFile(file *descriptorpb.FileDescriptorProto) {
+	for _, msg := range file.MessageType {
+		unmangleReferencesInMessage(msg)
+	}
+	for _, ext := range file.Extension {
+		unmangleReferencesInField(ext)
+	}
+	for _, svc := range file.Service {
+		for _, mtd := range svc.Method {
+			if strings.HasPrefix(mtd.GetInputType(), ".connectext.") {
+				mtd.InputType = proto.String(strings.TrimPrefix(mtd.GetInputType(), ".connectext"))
+			}
+			if strings.HasPrefix(mtd.GetOutputType(), ".connectext.") {
+				mtd.OutputType = proto.String(strings.TrimPrefix(mtd.GetOutputType(), ".connectext"))
+			}
+		}
+	}
+}
+
+func unmangleReferencesInMessage(msg *descriptorpb.DescriptorProto) {
+	for _, field := range msg.Field {
+		unmangleReferencesInField(field)
+	}
+	for _, ext := range msg.Extension {
+		unmangleReferencesInField(ext)
+	}
+	for _, nestedMsg := range msg.NestedType {
+		unmangleReferencesInMessage(nestedMsg)
+	}
+}
+
+func unmangleReferencesInField(field *descriptorpb.FieldDescriptorProto) {
+	if strings.HasPrefix(field.GetExtendee(), ".connectext.") {
+		field.Extendee = proto.String(strings.TrimPrefix(field.GetExtendee(), ".connectext"))
+	}
+	if strings.HasPrefix(field.GetTypeName(), ".connectext.") {
+		field.TypeName = proto.String(strings.TrimPrefix(field.GetTypeName(), ".connectext"))
+	}
+}
+
+func registerDependencies(file protoreflect.FileDescriptor, registry *protoregistry.Files) error {
+	imps := file.Imports()
+	for i, length := 0, imps.Len(); i < length; i++ {
+		imp := imps.Get(i).FileDescriptor
+		if _, err := registry.FindFileByPath(imp.Path()); err == nil {
+			// already registered
+			continue
+		}
+		if err := registerDependencies(imp, registry); err != nil {
+			return err
+		}
+		if err := registry.RegisterFile(imp); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func contains(set map[string]struct{}, val string) bool {
+	_, ok := set[val]
+	return ok
 }

@@ -20,3 +20,14 @@ message Extendable {
   required int32 number = 1;
   extensions 10 to 30;
 }
+
+service TestService {
+  rpc Do(DoRequest) returns (DoResponse);
+}
+
+message DoRequest {
+  optional Extendable ext = 1;
+}
+
+message DoResponse {
+}
