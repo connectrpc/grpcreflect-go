@@ -36,8 +36,6 @@ import (
 
 	"github.com/bufbuild/connect-go"
 	reflectionv1 "github.com/bufbuild/connect-grpcreflect-go/internal/gen/go/connectext/grpc/reflection/v1"
-	// Since we expose v1alpha service, we need to link in the descriptors.
-	_ "github.com/bufbuild/connect-grpcreflect-go/internal/gen/go/connectext/grpc/reflection/v1alpha"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -54,26 +52,10 @@ const (
 	serviceURLPathV1      = "/" + ReflectV1ServiceName + "/"
 	serviceURLPathV1Alpha = "/" + ReflectV1AlphaServiceName + "/"
 	methodName            = "ServerReflectionInfo"
-
-	healthV1ServiceName    = "grpc.health.v1.Health"
-	healthV1FileName       = "grpc/health/v1/health.proto"
-	reflectV1FileName      = "grpc/reflection/v1/reflection.proto"
-	reflectV1AlphaFileName = "grpc/reflection/v1alpha/reflection.proto"
 )
 
 //nolint:gochecknoglobals
 var (
-	mangledServiceNames = map[string]struct{}{
-		ReflectV1ServiceName:      {},
-		ReflectV1AlphaServiceName: {},
-		healthV1ServiceName:       {},
-	}
-	mangledFileNames = map[string]struct{}{
-		reflectV1FileName:      {},
-		reflectV1AlphaFileName: {},
-		healthV1FileName:       {},
-	}
-
 	//go:embed services.bin
 	embeddedDescriptors []byte
 
@@ -410,6 +392,17 @@ func (n *staticNames) Names() []string {
 	return n.names
 }
 
+// resolverHackForConnectext returns a resolver that can successfully resolve the descriptors
+// for the gRPC health and reflection services. We need a work-around since this repo (and the
+// connect-grpchealth-go repo) use "hacked" services that have a "connectext." package prefix.
+// We don't use the "authoritative" packages for these descriptors because they depend on the
+// gRPC runtime (ew!). We add a special prefix to the packages to avoid an init-time panic from
+// duplicate registrations, in the event that the calling application _also_ imports the gRPC
+// versions.
+//
+// This works by serving embedded descriptors (from "services.bin") for items not found in
+// protoregistry.GlobalFiles. The only thing in the embedded descriptors are for the health
+// and reflection services.
 func resolverHackForConnectext(data []byte) protodesc.Resolver {
 	var resolver protodesc.Resolver = protoregistry.GlobalFiles
 	var fileSet descriptorpb.FileDescriptorSet
