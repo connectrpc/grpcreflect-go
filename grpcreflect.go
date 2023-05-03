@@ -38,6 +38,7 @@ import (
 
 	"github.com/bufbuild/connect-go"
 	reflectionv1 "github.com/bufbuild/connect-grpcreflect-go/internal/gen/go/connectext/grpc/reflection/v1"
+	// Since we expose v1alpha service, we need to link in the descriptors.
 	_ "github.com/bufbuild/connect-grpcreflect-go/internal/gen/go/connectext/grpc/reflection/v1alpha"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
@@ -62,6 +63,7 @@ const (
 	reflectV1AlphaFileName = "grpc/reflection/v1alpha/reflection.proto"
 )
 
+//nolint:gochecknoglobals
 var (
 	mangledServiceNames = map[string]struct{}{
 		ReflectV1ServiceName:      {},
@@ -422,15 +424,15 @@ func resolverHackForConnectext() *hackedResolver {
 	return res
 }
 
-func (r *hackedResolver) FindFileByPath(s string) (protoreflect.FileDescriptor, error) {
+func (r *hackedResolver) FindFileByPath(path string) (protoreflect.FileDescriptor, error) {
 	res := *r.resolver.Load()
-	file, err := res.FindFileByPath(s)
+	file, err := res.FindFileByPath(path)
 	if err != nil {
-		if res == protoregistry.GlobalFiles && contains(mangledFileNames, s) {
+		if res == protoregistry.GlobalFiles && contains(mangledFileNames, path) {
 			// we need to create "unmangled" versions of the services
 			// that connect libs have to mangle
 			res = r.doInit(res)
-			file, err = res.FindFileByPath(s)
+			file, err = res.FindFileByPath(path)
 			if err == nil {
 				return file, nil
 			}
