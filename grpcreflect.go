@@ -404,18 +404,19 @@ func (n *staticNames) Names() []string {
 // protoregistry.GlobalFiles. The only thing in the embedded descriptors are for the health
 // and reflection services.
 func resolverHackForConnectext(data []byte) protodesc.Resolver {
-	var resolver protodesc.Resolver = protoregistry.GlobalFiles
+	var backupResolver protodesc.Resolver
 	var fileSet descriptorpb.FileDescriptorSet
 	if err := proto.Unmarshal(data, &fileSet); err != nil {
-		return resolver
+		backupResolver = &errResolver{err}
+	} else if files, err := protodesc.NewFiles(&fileSet); err != nil {
+		backupResolver = &errResolver{err}
+	} else {
+		backupResolver = files
 	}
-	files, err := protodesc.NewFiles(&fileSet)
-	if err != nil {
-		return resolver
-	}
+
 	return &combinedResolver{
 		first:  protoregistry.GlobalFiles,
-		second: files,
+		second: backupResolver,
 	}
 }
 
@@ -425,7 +426,7 @@ type combinedResolver struct {
 
 func (r *combinedResolver) FindFileByPath(s string) (protoreflect.FileDescriptor, error) {
 	file, err := r.first.FindFileByPath(s)
-	if err != nil {
+	if errors.Is(err, protoregistry.NotFound) {
 		file, err = r.second.FindFileByPath(s)
 	}
 	return file, err
@@ -433,8 +434,20 @@ func (r *combinedResolver) FindFileByPath(s string) (protoreflect.FileDescriptor
 
 func (r *combinedResolver) FindDescriptorByName(name protoreflect.FullName) (protoreflect.Descriptor, error) {
 	desc, err := r.first.FindDescriptorByName(name)
-	if err != nil {
+	if errors.Is(err, protoregistry.NotFound) {
 		desc, err = r.second.FindDescriptorByName(name)
 	}
 	return desc, err
+}
+
+type errResolver struct {
+	err error
+}
+
+func (r *errResolver) FindFileByPath(s string) (protoreflect.FileDescriptor, error) {
+	return nil, r.err
+}
+
+func (r *errResolver) FindDescriptorByName(name protoreflect.FullName) (protoreflect.Descriptor, error) {
+	return nil, r.err
 }

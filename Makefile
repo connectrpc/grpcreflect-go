@@ -29,6 +29,7 @@ clean: ## Delete intermediate build artifacts
 .PHONY: test
 test: build ## Run unit tests
 	$(GO) test -vet=off -race -cover ./...
+	cd ./internal/resolvertest && $(GO) test -vet=off -race -cover ./...
 
 .PHONY: build
 build: generate ## Build all packages
