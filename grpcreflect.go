@@ -1,4 +1,4 @@
-// Copyright 2022 Buf Technologies, Inc.
+// Copyright 2022-2023 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -27,6 +27,7 @@ package grpcreflect
 
 import (
 	"context"
+	_ "embed" // required for go:embed directive
 	"errors"
 	"fmt"
 	"io"
@@ -39,12 +40,26 @@ import (
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
+	"google.golang.org/protobuf/types/descriptorpb"
 )
 
 const (
-	serviceURLPathV1      = "/grpc.reflection.v1.ServerReflection/"
-	serviceURLPathV1Alpha = "/grpc.reflection.v1alpha.ServerReflection/"
+	// ReflectV1ServiceName is the fully-qualified name of the v1 version of the reflection service.
+	ReflectV1ServiceName = "grpc.reflection.v1.ServerReflection"
+	// ReflectV1AlphaServiceName is the fully-qualified name of the v1alpha version of the reflection service.
+	ReflectV1AlphaServiceName = "grpc.reflection.v1alpha.ServerReflection"
+
+	serviceURLPathV1      = "/" + ReflectV1ServiceName + "/"
+	serviceURLPathV1Alpha = "/" + ReflectV1AlphaServiceName + "/"
 	methodName            = "ServerReflectionInfo"
+)
+
+//nolint:gochecknoglobals
+var (
+	//go:embed services.bin
+	embeddedDescriptors []byte
+
+	globalFiles = resolverHackForConnectext(embeddedDescriptors)
 )
 
 // NewHandlerV1 constructs an implementation of v1 of the gRPC server reflection
@@ -96,7 +111,7 @@ func NewReflector(namer Namer, options ...Option) *Reflector {
 	reflector := &Reflector{
 		namer:              namer,
 		extensionResolver:  protoregistry.GlobalTypes,
-		descriptorResolver: protoregistry.GlobalFiles,
+		descriptorResolver: globalFiles,
 	}
 	for _, option := range options {
 		option.apply(reflector)
@@ -375,4 +390,64 @@ type staticNames struct {
 
 func (n *staticNames) Names() []string {
 	return n.names
+}
+
+// resolverHackForConnectext returns a resolver that can successfully resolve the descriptors
+// for the gRPC health and reflection services. We need a work-around since this repo (and the
+// connect-grpchealth-go repo) use "hacked" services that have a "connectext." package prefix.
+// We don't use the "authoritative" packages for these descriptors because they depend on the
+// gRPC runtime (ew!). We add a special prefix to the packages to avoid an init-time panic from
+// duplicate registrations, in the event that the calling application _also_ imports the gRPC
+// versions.
+//
+// This works by serving embedded descriptors (from "services.bin") for items not found in
+// protoregistry.GlobalFiles. The only thing in the embedded descriptors are for the health
+// and reflection services.
+func resolverHackForConnectext(data []byte) protodesc.Resolver {
+	var backupResolver protodesc.Resolver
+	var fileSet descriptorpb.FileDescriptorSet
+	if err := proto.Unmarshal(data, &fileSet); err != nil {
+		backupResolver = &errResolver{err}
+	} else if files, err := protodesc.NewFiles(&fileSet); err != nil {
+		backupResolver = &errResolver{err}
+	} else {
+		backupResolver = files
+	}
+
+	return &combinedResolver{
+		first:  protoregistry.GlobalFiles,
+		second: backupResolver,
+	}
+}
+
+type combinedResolver struct {
+	first, second protodesc.Resolver
+}
+
+func (r *combinedResolver) FindFileByPath(s string) (protoreflect.FileDescriptor, error) {
+	file, err := r.first.FindFileByPath(s)
+	if errors.Is(err, protoregistry.NotFound) {
+		file, err = r.second.FindFileByPath(s)
+	}
+	return file, err
+}
+
+func (r *combinedResolver) FindDescriptorByName(name protoreflect.FullName) (protoreflect.Descriptor, error) {
+	desc, err := r.first.FindDescriptorByName(name)
+	if errors.Is(err, protoregistry.NotFound) {
+		desc, err = r.second.FindDescriptorByName(name)
+	}
+	return desc, err
+}
+
+type errResolver struct {
+	err error
+}
+
+func (r *errResolver) FindFileByPath(s string) (protoreflect.FileDescriptor, error) {
+	return nil, r.err
+}
+
+func (r *errResolver) FindDescriptorByName(name protoreflect.FullName) (protoreflect.Descriptor, error) {
+	return nil, r.err
 }

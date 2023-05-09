@@ -4,6 +4,6 @@ managed:
   go_package_prefix:
     default: github.com/bufbuild/connect-grpcreflect-go/internal/gen/go
 plugins:
-  - name: go
+  - plugin: go
     out: internal/gen/go
     opt: paths=source_relative
