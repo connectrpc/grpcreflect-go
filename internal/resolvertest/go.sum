@@ -1,7 +1,7 @@
 github.com/bufbuild/connect-go v1.7.0 h1:MGp82v7SCza+3RhsVhV7aMikwxvI3ZfD72YiGt8FYJo=
 github.com/bufbuild/connect-go v1.7.0/go.mod h1:GmMJYR6orFqD0Y6ZgX8pwQ8j9baizDrIQMm1/a6LnHk=
-github.com/bufbuild/connect-grpchealth-go v1.0.1-0.20230503165053-2a56ef052862 h1:WO55I1Q5/46XzRMyplzT2HT4cangJ1eqjMvLi1L78Z4=
-github.com/bufbuild/connect-grpchealth-go v1.0.1-0.20230503165053-2a56ef052862/go.mod h1:eSG9NmhAo5SmcDNkT42fKuZUfXRfMwTNYvAp6VQPGZs=
+github.com/bufbuild/connect-grpchealth-go v1.1.0 h1:Yri24hjiRwZQK87N6ybwXiv+Ozg8KtH2n/OLcvkNQds=
+github.com/bufbuild/connect-grpchealth-go v1.1.0/go.mod h1:9KbkogLoUIxOTPKyWDv5evkawr1IYXaHax4XoUHCgoQ=
 github.com/bufbuild/connect-grpcreflect-go v1.0.0 h1:zWsLFYqrT1O2sNJFYfTXI5WxbAyiY2dvevvnJHPtV5A=
 github.com/bufbuild/connect-grpcreflect-go v1.0.0/go.mod h1:825I20H8bfE9rLnBH/046JSpmm3uwpNYdG4duCARetc=
 github.com/golang/protobuf v1.5.0/go.mod h1:FsONVRAS9T7sI+LIUmWTfcYkHO4aIWwzhcaSAoJOfIk=
