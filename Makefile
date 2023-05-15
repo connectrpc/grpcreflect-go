@@ -34,11 +34,13 @@ test: build ## Run unit tests
 .PHONY: build
 build: generate ## Build all packages
 	$(GO) build ./...
+	cd ./internal/resolvertest && $(GO) build ./...
 
 .PHONY: lint
 lint: $(BIN)/golangci-lint $(BIN)/buf ## Lint Go and protobuf
 	test -z "$$($(BIN)/buf format -d . | tee /dev/stderr)"
 	$(GO) vet ./...
+	cd ./internal/resolvertest && $(GO) vet ./...
 	$(BIN)/golangci-lint run
 	$(BIN)/buf lint --exclude-path internal/proto/connectext
 
@@ -68,6 +70,8 @@ generate: $(BIN)/buf $(BIN)/protoc-gen-go $(BIN)/license-header services.bin ## 
 .PHONY: upgrade
 upgrade: ## Upgrade dependencies
 	$(GO) get -u -t ./... && $(GO) mod tidy -v
+	cd ./internal/resolvertest && $(GO) get -u -t ./... && $(GO) mod tidy -v
+	$(GO) work sync
 
 .PHONY: checkgenerate
 checkgenerate:
@@ -76,20 +80,20 @@ checkgenerate:
 
 $(BIN)/buf: Makefile
 	@mkdir -p $(@D)
-	GOBIN=$(abspath $(@D)) $(GO) install github.com/bufbuild/buf/cmd/buf@v1.14.0
+	GOBIN=$(abspath $(@D)) $(GO) install github.com/bufbuild/buf/cmd/buf@v1.18.0
 
 $(BIN)/license-header: Makefile
 	@mkdir -p $(@D)
 	GOBIN=$(abspath $(@D)) $(GO) install \
-		  github.com/bufbuild/buf/private/pkg/licenseheader/cmd/license-header@v1.8.0
+		  github.com/bufbuild/buf/private/pkg/licenseheader/cmd/license-header@v1.18.0
 
 $(BIN)/golangci-lint: Makefile
 	@mkdir -p $(@D)
-	GOBIN=$(abspath $(@D)) $(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.51.0
+	GOBIN=$(abspath $(@D)) $(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.52.2
 
 $(BIN)/protoc-gen-go: Makefile
 	@mkdir -p $(@D)
-	GOBIN=$(abspath $(@D)) $(GO) install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28.1
+	GOBIN=$(abspath $(@D)) $(GO) install google.golang.org/protobuf/cmd/protoc-gen-go@v1.30.0
 
 services.bin: $(BIN)/buf
 	$(BIN)/buf build --as-file-descriptor-set --output $(@F) \

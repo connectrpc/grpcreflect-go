@@ -3,7 +3,7 @@ module connectrpc.com/grpcreflect
 go 1.19
 
 require (
-	connectrpc.com/connect v1.5.1
+	connectrpc.com/connect v1.7.0
 	github.com/google/go-cmp v0.5.9
-	google.golang.org/protobuf v1.28.1
+	google.golang.org/protobuf v1.30.0
 )

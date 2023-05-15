@@ -133,7 +133,7 @@ func NewStaticReflector(services ...string) *Reflector {
 
 // serverReflectionInfo implements the gRPC server reflection API.
 func (r *Reflector) serverReflectionInfo(
-	ctx context.Context,
+	_ context.Context,
 	stream *connect.BidiStream[
 		reflectionv1.ServerReflectionRequest,
 		reflectionv1.ServerReflectionResponse,
@@ -444,10 +444,10 @@ type errResolver struct {
 	err error
 }
 
-func (r *errResolver) FindFileByPath(s string) (protoreflect.FileDescriptor, error) {
+func (r *errResolver) FindFileByPath(_ string) (protoreflect.FileDescriptor, error) {
 	return nil, r.err
 }
 
-func (r *errResolver) FindDescriptorByName(name protoreflect.FullName) (protoreflect.Descriptor, error) {
+func (r *errResolver) FindDescriptorByName(_ protoreflect.FullName) (protoreflect.Descriptor, error) {
 	return nil, r.err
 }
