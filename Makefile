@@ -34,11 +34,13 @@ test: build ## Run unit tests
 .PHONY: build
 build: generate ## Build all packages
 	$(GO) build ./...
+	cd ./internal/resolvertest && $(GO) build ./...
 
 .PHONY: lint
 lint: $(BIN)/golangci-lint $(BIN)/buf ## Lint Go and protobuf
 	test -z "$$($(BIN)/buf format -d . | tee /dev/stderr)"
 	$(GO) vet ./...
+	cd ./internal/resolvertest && $(GO) vet ./...
 	$(BIN)/golangci-lint run
 	$(BIN)/buf lint --exclude-path internal/proto/connectext
 
@@ -68,6 +70,8 @@ generate: $(BIN)/buf $(BIN)/protoc-gen-go $(BIN)/license-header services.bin ## 
 .PHONY: upgrade
 upgrade: ## Upgrade dependencies
 	$(GO) get -u -t ./... && $(GO) mod tidy -v
+	cd ./internal/resolvertest && $(GO) get -u -t ./... && $(GO) mod tidy -v
+	$(GO) work sync
 
 .PHONY: checkgenerate
 checkgenerate:
