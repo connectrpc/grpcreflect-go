@@ -267,7 +267,9 @@ func (r *Reflector) getAllExtensionNumbersOfType(fqn string) ([]int32, error) {
 		return true
 	})
 	if len(nums) == 0 {
-		return nil, fmt.Errorf("no extensions for type %q", fqn)
+		if _, err := r.descriptorResolver.FindDescriptorByName(name); err != nil {
+			return nil, err
+		}
 	}
 	sort.Slice(nums, func(i, j int) bool {
 		return nums[i] < nums[j]
