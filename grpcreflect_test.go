@@ -256,6 +256,32 @@ func testReflector(t *testing.T, reflector *Reflector, servicePath string) {
 			t.Fatal(diff)
 		}
 	})
+	t.Run("all_extension_numbers_of_type_find_descriptor_by_name", func(t *testing.T) {
+		const extendableFQN = "connect.reflecttest.v1.DoRequest"
+		req := &reflectionv1.ServerReflectionRequest{
+			Host: "some-host",
+			MessageRequest: &reflectionv1.ServerReflectionRequest_AllExtensionNumbersOfType{
+				AllExtensionNumbersOfType: extendableFQN,
+			},
+		}
+		res, err := call(req)
+		if err != nil {
+			t.Fatal(err.Error())
+		}
+		expect := &reflectionv1.ServerReflectionResponse{
+			ValidHost:       req.Host,
+			OriginalRequest: req,
+			MessageResponse: &reflectionv1.ServerReflectionResponse_AllExtensionNumbersResponse{
+				AllExtensionNumbersResponse: &reflectionv1.ExtensionNumberResponse{
+					BaseTypeName:    extendableFQN,
+					ExtensionNumber: []int32{},
+				},
+			},
+		}
+		if diff := cmp.Diff(expect, res, protocmp.Transform()); diff != "" {
+			t.Fatal(diff)
+		}
+	})
 	t.Run("all_extension_numbers_of_type_missing", func(t *testing.T) {
 		t.Parallel()
 		req := &reflectionv1.ServerReflectionRequest{
