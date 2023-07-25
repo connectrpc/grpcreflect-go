@@ -1,9 +1,0 @@
-version: v1
-managed:
-  enabled: true
-  go_package_prefix:
-    default: github.com/bufbuild/connect-grpcreflect-go/internal/gen/go
-plugins:
-  - plugin: go
-    out: internal/gen/go
-    opt: paths=source_relative
