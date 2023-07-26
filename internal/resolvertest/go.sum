@@ -1,0 +1,5 @@
+connectrpc.com/connect v1.11.0 h1:Av2KQXxSaX4vjqhf5Cl01SX4dqYADQ38eBtr84JSUBk=
+connectrpc.com/grpchealth v1.2.0 h1:aHP33Bki+F2jPNI1mFVSFG7v0qJrgmfbg7X7nOdSj0M=
+connectrpc.com/grpcreflect v1.1.0 h1:kgY7+AuFbxDlk9rK7ywjHIWPBBNieo1zxvNFeBUi1Rs=
+github.com/google/go-cmp v0.5.9 h1:O2Tfq5qg4qc4AmwVlvv0oLiVAGB7enBSJ2x2DqQFi38=
+google.golang.org/protobuf v1.31.0 h1:g0LDEJHgrBl9N9r17Ru3sqWhkIx2NB67okBHPwC7hs8=
