@@ -6,7 +6,7 @@ linters-settings:
   exhaustruct:
     include:
       # No zero values for param structs.
-      - 'github\.com/bufbuild/connect-grpcreflect-go\..*[pP]arams'
+      - 'connectrpc\.com/grpcreflect\..*[pP]arams'
   forbidigo:
     forbid:
       - '^fmt\.Print'
