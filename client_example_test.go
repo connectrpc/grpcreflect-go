@@ -42,6 +42,6 @@ func ExampleNewClient() {
 	}
 	fmt.Printf("file descriptor for %q\n", files[len(files)-1].GetName())
 	// Output:
-	// services: [buf.connect.demo.eliza.v1.ElizaService]
-	// file descriptor for "buf/connect/demo/eliza/v1/eliza.proto"
+	// services: [connectrpc.eliza.v1.ElizaService]
+	// file descriptor for "connectrpc/eliza/v1/eliza.proto"
 }
