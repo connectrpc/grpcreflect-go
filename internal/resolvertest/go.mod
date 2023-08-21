@@ -4,7 +4,7 @@ go 1.19
 
 require (
 	connectrpc.com/grpchealth v1.2.0
-	connectrpc.com/grpcreflect v1.1.0
+	connectrpc.com/grpcreflect v1.2.0
 	github.com/google/go-cmp v0.5.9
 	google.golang.org/protobuf v1.31.0
 )
