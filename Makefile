@@ -55,7 +55,7 @@ generate: $(BIN)/buf $(BIN)/protoc-gen-go $(BIN)/license-header services.bin ## 
 	PATH=$(abspath $(BIN)) buf generate
 	license-header \
 		--license-type apache \
-		--copyright-holder "Buf Technologies, Inc." \
+		--copyright-holder "The Connect Authors" \
 		--year-range "$(COPYRIGHT_YEARS)" $(LICENSE_IGNORE)
 
 .PHONY: upgrade
