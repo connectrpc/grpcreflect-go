@@ -25,7 +25,6 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: ${{ matrix.go-version }}
-          restore-keys: ${{ runner.os }}-connect-grpcreflect-go-ci-
       - name: Test
         run: make test
       - name: Lint
