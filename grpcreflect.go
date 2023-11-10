@@ -314,18 +314,18 @@ type ExtensionResolver interface {
 }
 
 type fileDescriptorNameSet struct {
-	names map[protoreflect.FullName]struct{}
+	names map[string]struct{}
 }
 
-func (s *fileDescriptorNameSet) Insert(fd protoreflect.FileDescriptor) {
+func (s *fileDescriptorNameSet) Insert(path string) {
 	if s.names == nil {
-		s.names = make(map[protoreflect.FullName]struct{}, 1)
+		s.names = make(map[string]struct{}, 1)
 	}
-	s.names[fd.FullName()] = struct{}{}
+	s.names[path] = struct{}{}
 }
 
-func (s *fileDescriptorNameSet) Contains(fd protoreflect.FileDescriptor) bool {
-	_, ok := s.names[fd.FullName()]
+func (s *fileDescriptorNameSet) Contains(path string) bool {
+	_, ok := s.names[path]
 	return ok
 }
 
@@ -343,10 +343,10 @@ func fileDescriptorWithDependencies(rootFile protoreflect.FileDescriptor, sent *
 		if curr.IsPlaceholder() {
 			continue // don't bother serializing placeholders
 		}
-		if len(results) == 0 || !sent.Contains(curr) { // always send root fd
+		if len(results) == 0 || !sent.Contains(curr.Path()) { // always send root fd
 			// Mark as sent immediately. If we hit an error marshaling below, there's
 			// no point trying again later.
-			sent.Insert(curr)
+			sent.Insert(curr.Path())
 			encoded, err := proto.Marshal(protodesc.ToFileDescriptorProto(curr))
 			if err != nil {
 				return nil, err

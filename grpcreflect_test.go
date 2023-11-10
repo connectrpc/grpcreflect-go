@@ -87,6 +87,7 @@ func testReflector(t *testing.T, reflector *Reflector, servicePath string) {
 	assertFileDescriptorResponseContains := func(
 		tb testing.TB,
 		req *reflectionv1.ServerReflectionRequest,
+		numFiles int,
 		substring string,
 	) {
 		tb.Helper()
@@ -102,8 +103,8 @@ func testReflector(t *testing.T, reflector *Reflector, servicePath string) {
 			tb.Fatal("got nil FileDescriptorResponse")
 			return // convinces staticcheck that remaining code is unreachable
 		}
-		if len(fds.FileDescriptorProto) != 1 {
-			tb.Fatalf("got %d FileDescriptorProtos, expected 1", len(fds.FileDescriptorProto))
+		if len(fds.FileDescriptorProto) != numFiles {
+			tb.Fatalf("got %d FileDescriptorProtos, expected %d", len(fds.FileDescriptorProto), numFiles)
 		}
 		if !bytes.Contains(fds.FileDescriptorProto[0], []byte(substring)) {
 			tb.Fatalf(
@@ -171,7 +172,7 @@ func testReflector(t *testing.T, reflector *Reflector, servicePath string) {
 				FileByFilename: "connectext/grpc/reflection/v1/reflection.proto",
 			},
 		}
-		assertFileDescriptorResponseContains(t, req, reflectionRequestFQN)
+		assertFileDescriptorResponseContains(t, req, 1, reflectionRequestFQN)
 	})
 	t.Run("file_by_filename_missing", func(t *testing.T) {
 		t.Parallel()
@@ -191,7 +192,7 @@ func testReflector(t *testing.T, reflector *Reflector, servicePath string) {
 				FileContainingSymbol: reflectionRequestFQN,
 			},
 		}
-		assertFileDescriptorResponseContains(t, req, "reflection.proto")
+		assertFileDescriptorResponseContains(t, req, 1, "reflection.proto")
 	})
 	t.Run("file_containing_symbol_missing", func(t *testing.T) {
 		t.Parallel()
@@ -214,7 +215,8 @@ func testReflector(t *testing.T, reflector *Reflector, servicePath string) {
 				},
 			},
 		}
-		assertFileDescriptorResponseContains(t, req, "reflecttest_ext.proto")
+		// We expect two files here: both reflecttest_ext.proto and its dependency, reflecttest.proto
+		assertFileDescriptorResponseContains(t, req, 2, "reflecttest_ext.proto")
 	})
 	t.Run("file_containing_extension_missing", func(t *testing.T) {
 		t.Parallel()
