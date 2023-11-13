@@ -297,7 +297,6 @@ func (f NamerFunc) Names() []string {
 	return f()
 }
 
-
 // An Option configures a Reflector.
 type Option interface {
 	apply(*Reflector)
