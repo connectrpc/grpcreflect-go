@@ -19,14 +19,20 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"sort"
 	"testing"
 
 	"connectrpc.com/connect"
 	_ "connectrpc.com/grpcreflect/internal/gen/go/connect/reflecttest/v1"
 	reflectionv1 "connectrpc.com/grpcreflect/internal/gen/go/connectext/grpc/reflection/v1"
 	"github.com/google/go-cmp/cmp"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protodesc"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/testing/protocmp"
+	"google.golang.org/protobuf/types/descriptorpb"
 )
 
 const actualServiceName = "connectext.grpc.reflection.v1.ServerReflection"
@@ -87,6 +93,7 @@ func testReflector(t *testing.T, reflector *Reflector, servicePath string) {
 	assertFileDescriptorResponseContains := func(
 		tb testing.TB,
 		req *reflectionv1.ServerReflectionRequest,
+		numFiles int,
 		substring string,
 	) {
 		tb.Helper()
@@ -102,8 +109,8 @@ func testReflector(t *testing.T, reflector *Reflector, servicePath string) {
 			tb.Fatal("got nil FileDescriptorResponse")
 			return // convinces staticcheck that remaining code is unreachable
 		}
-		if len(fds.FileDescriptorProto) != 1 {
-			tb.Fatalf("got %d FileDescriptorProtos, expected 1", len(fds.FileDescriptorProto))
+		if len(fds.FileDescriptorProto) != numFiles {
+			tb.Fatalf("got %d FileDescriptorProtos, expected %d", len(fds.FileDescriptorProto), numFiles)
 		}
 		if !bytes.Contains(fds.FileDescriptorProto[0], []byte(substring)) {
 			tb.Fatalf(
@@ -171,7 +178,7 @@ func testReflector(t *testing.T, reflector *Reflector, servicePath string) {
 				FileByFilename: "connectext/grpc/reflection/v1/reflection.proto",
 			},
 		}
-		assertFileDescriptorResponseContains(t, req, reflectionRequestFQN)
+		assertFileDescriptorResponseContains(t, req, 1, reflectionRequestFQN)
 	})
 	t.Run("file_by_filename_missing", func(t *testing.T) {
 		t.Parallel()
@@ -191,7 +198,7 @@ func testReflector(t *testing.T, reflector *Reflector, servicePath string) {
 				FileContainingSymbol: reflectionRequestFQN,
 			},
 		}
-		assertFileDescriptorResponseContains(t, req, "reflection.proto")
+		assertFileDescriptorResponseContains(t, req, 1, "reflection.proto")
 	})
 	t.Run("file_containing_symbol_missing", func(t *testing.T) {
 		t.Parallel()
@@ -214,7 +221,8 @@ func testReflector(t *testing.T, reflector *Reflector, servicePath string) {
 				},
 			},
 		}
-		assertFileDescriptorResponseContains(t, req, "reflecttest_ext.proto")
+		// We expect two files here: both reflecttest_ext.proto and its dependency, reflecttest.proto
+		assertFileDescriptorResponseContains(t, req, 2, "reflecttest_ext.proto")
 	})
 	t.Run("file_containing_extension_missing", func(t *testing.T) {
 		t.Parallel()
@@ -292,4 +300,198 @@ func testReflector(t *testing.T, reflector *Reflector, servicePath string) {
 		}
 		assertFileDescriptorResponseNotFound(t, req)
 	})
+}
+
+func TestFileDescriptorWithDependencies(t *testing.T) {
+	t.Parallel()
+
+	depFile, err := protodesc.NewFile(
+		&descriptorpb.FileDescriptorProto{
+			Name: proto.String("dep.proto"),
+		}, nil,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	deps := &protoregistry.Files{}
+	if err := deps.RegisterFile(depFile); err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	rootFileProto := &descriptorpb.FileDescriptorProto{
+		Name: proto.String("root.proto"),
+		Dependency: []string{
+			"google/protobuf/descriptor.proto",
+			"connect/reflecttest/v1/reflecttest_ext.proto",
+			"dep.proto",
+		},
+	}
+
+	// dep.proto is in deps; the other imports come from protoregistry.GlobalFiles
+	resolver := &combinedResolver{first: protoregistry.GlobalFiles, second: deps}
+	rootFile, err := protodesc.NewFile(rootFileProto, resolver)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	// Create a file hierarchy that contains a placeholder for dep.proto
+	placeholderDep := placeholderFile{depFile}
+	placeholderDeps := &protoregistry.Files{}
+	if err := placeholderDeps.RegisterFile(placeholderDep); err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	resolver = &combinedResolver{first: protoregistry.GlobalFiles, second: placeholderDeps}
+
+	rootFileHasPlaceholderDep, err := protodesc.NewFile(rootFileProto, resolver)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	rootFileIsPlaceholder := placeholderFile{rootFile}
+
+	// Full transitive dependency graph of root.proto includes five files:
+	// - root.proto
+	//   - google/protobuf/descriptor.proto
+	//   - connect/reflecttest/v1/reflecttest_ext.proto
+	//     - connect/reflecttest/v1/reflecttest.proto
+	//   - dep.proto
+
+	testCases := []struct {
+		name   string
+		sent   []string
+		root   protoreflect.FileDescriptor
+		expect []string
+	}{
+		{
+			name: "send_all",
+			root: rootFile,
+			// expect full transitive closure
+			expect: []string{
+				"root.proto",
+				"google/protobuf/descriptor.proto",
+				"connect/reflecttest/v1/reflecttest_ext.proto",
+				"connect/reflecttest/v1/reflecttest.proto",
+				"dep.proto",
+			},
+		},
+		{
+			name: "already_sent",
+			sent: []string{
+				"root.proto",
+				"google/protobuf/descriptor.proto",
+				"connect/reflecttest/v1/reflecttest_ext.proto",
+				"connect/reflecttest/v1/reflecttest.proto",
+				"dep.proto",
+			},
+			root: rootFile,
+			// expect only the root to be re-sent
+			expect: []string{"root.proto"},
+		},
+		{
+			name: "some_already_sent",
+			sent: []string{
+				"connect/reflecttest/v1/reflecttest_ext.proto",
+				"connect/reflecttest/v1/reflecttest.proto",
+			},
+			root: rootFile,
+			expect: []string{
+				"root.proto",
+				"google/protobuf/descriptor.proto",
+				"dep.proto",
+			},
+		},
+		{
+			name: "root_is_placeholder",
+			root: rootFileIsPlaceholder,
+			// expect error, no files
+		},
+		{
+			name: "placeholder_skipped",
+			root: rootFileHasPlaceholderDep,
+			// dep.proto is a placeholder so is skipped
+			expect: []string{
+				"root.proto",
+				"google/protobuf/descriptor.proto",
+				"connect/reflecttest/v1/reflecttest_ext.proto",
+				"connect/reflecttest/v1/reflecttest.proto",
+			},
+		},
+		{
+			name: "placeholder_skipped_and_some_sent",
+			sent: []string{
+				"connect/reflecttest/v1/reflecttest_ext.proto",
+				"connect/reflecttest/v1/reflecttest.proto",
+			},
+			root: rootFileHasPlaceholderDep,
+			expect: []string{
+				"root.proto",
+				"google/protobuf/descriptor.proto",
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			sent := &fileDescriptorNameSet{}
+			for _, path := range testCase.sent {
+				sent.Insert(dummyFile{path: path})
+			}
+
+			descriptors, err := fileDescriptorWithDependencies(testCase.root, sent)
+			if len(testCase.expect) == 0 {
+				// if we're not expecting any files then we're expecting an error
+				if err == nil {
+					t.Fatalf("expecting an error; instead got %d files", len(descriptors))
+				}
+				return
+			}
+
+			checkDescriptorResults(t, descriptors, testCase.expect)
+		})
+	}
+}
+
+func checkDescriptorResults(t *testing.T, descriptors [][]byte, expect []string) {
+	t.Helper()
+	if len(descriptors) != len(expect) {
+		t.Errorf("expected result to contain %d descriptor(s); instead got %d", len(expect), len(descriptors))
+	}
+	names := map[string]struct{}{}
+	for i, desc := range descriptors {
+		var descProto descriptorpb.FileDescriptorProto
+		if err := proto.Unmarshal(desc, &descProto); err != nil {
+			t.Fatalf("could not unmarshal descriptor result #%d", i+1)
+		}
+		names[descProto.GetName()] = struct{}{}
+	}
+	actual := make([]string, 0, len(names))
+	for name := range names {
+		actual = append(actual, name)
+	}
+	sort.Strings(actual)
+	sort.Strings(expect)
+	if !reflect.DeepEqual(actual, expect) {
+		t.Fatalf("expected file descriptors for %v; instead got %v", expect, actual)
+	}
+}
+
+type placeholderFile struct {
+	protoreflect.FileDescriptor
+}
+
+func (placeholderFile) IsPlaceholder() bool {
+	return true
+}
+
+type dummyFile struct {
+	protoreflect.FileDescriptor
+	path string
+}
+
+func (f dummyFile) Path() string {
+	return f.path
 }

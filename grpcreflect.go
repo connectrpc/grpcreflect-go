@@ -327,27 +327,35 @@ type ExtensionResolver interface {
 }
 
 type fileDescriptorNameSet struct {
-	names map[protoreflect.FullName]struct{}
+	names map[string]struct{}
 }
 
 func (s *fileDescriptorNameSet) Insert(fd protoreflect.FileDescriptor) {
 	if s.names == nil {
-		s.names = make(map[protoreflect.FullName]struct{}, 1)
+		s.names = make(map[string]struct{}, 1)
 	}
-	s.names[fd.FullName()] = struct{}{}
+	s.names[fd.Path()] = struct{}{}
 }
 
 func (s *fileDescriptorNameSet) Contains(fd protoreflect.FileDescriptor) bool {
-	_, ok := s.names[fd.FullName()]
+	_, ok := s.names[fd.Path()]
 	return ok
 }
 
-func fileDescriptorWithDependencies(fd protoreflect.FileDescriptor, sent *fileDescriptorNameSet) ([][]byte, error) {
+func fileDescriptorWithDependencies(rootFile protoreflect.FileDescriptor, sent *fileDescriptorNameSet) ([][]byte, error) {
+	if rootFile.IsPlaceholder() {
+		// A placeholder is used when a dependency is missing. If a placeholder is all we have
+		// then we don't actually have anything.
+		return nil, protoregistry.NotFound
+	}
 	results := make([][]byte, 0, 1)
-	queue := []protoreflect.FileDescriptor{fd}
+	queue := []protoreflect.FileDescriptor{rootFile}
 	for len(queue) > 0 {
 		curr := queue[0]
 		queue = queue[1:]
+		if curr.IsPlaceholder() {
+			continue // don't bother serializing placeholders
+		}
 		if len(results) == 0 || !sent.Contains(curr) { // always send root fd
 			// Mark as sent immediately. If we hit an error marshaling below, there's
 			// no point trying again later.
