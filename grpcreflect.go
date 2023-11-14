@@ -284,6 +284,19 @@ type Namer interface {
 	Names() []string
 }
 
+// NamerFunc is an adapter to allow the use of an ordinary function as a Namer.
+// Example:
+//
+//	reflector := grpcreflect.NewReflector(grpcreflect.NamerFunc(
+//		func() []string { return s.names },
+//	))
+type NamerFunc func() []string
+
+// Names returns the service names, implements the Namer interface.
+func (f NamerFunc) Names() []string {
+	return f()
+}
+
 // An Option configures a Reflector.
 type Option interface {
 	apply(*Reflector)
