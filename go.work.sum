@@ -1,2 +1,3 @@
-connectrpc.com/grpchealth v1.2.0/go.mod h1:fZos12C4p/ZaZC6OwBGZUM+i/fhnRhv75ax/6V/zIeM=
 connectrpc.com/grpcreflect v1.1.0/go.mod h1:QBX/Lf8oW35iCFCBYlPVTM5xrlKG1dMC+55klHv7YvE=
+github.com/golang/protobuf v1.5.0 h1:LUVKkCeviFUMKqHa4tXIIij/lbhnMbP7Fn5wKdKkRh4=
+golang.org/x/xerrors v0.0.0-20191204190536-9bdfabe68543 h1:E7g+9GITq07hpfrRu66IVDexMakfv52eLZ2CXBWiKr4=

@@ -438,7 +438,7 @@ func TestFileDescriptorWithDependencies(t *testing.T) {
 
 			sent := &fileDescriptorNameSet{}
 			for _, path := range testCase.sent {
-				sent.Insert(path)
+				sent.Insert(dummyFile{path: path})
 			}
 
 			descriptors, err := fileDescriptorWithDependencies(testCase.root, sent)
@@ -485,4 +485,13 @@ type placeholderFile struct {
 
 func (placeholderFile) IsPlaceholder() bool {
 	return true
+}
+
+type dummyFile struct {
+	protoreflect.FileDescriptor
+	path string
+}
+
+func (f dummyFile) Path() string {
+	return f.path
 }
