@@ -4,6 +4,7 @@ grpcreflect
 [![Build](https://github.com/connectrpc/grpcreflect-go/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/connectrpc/grpcreflect-go/actions/workflows/ci.yaml)
 [![Report Card](https://goreportcard.com/badge/connectrpc.com/grpcreflect)](https://goreportcard.com/report/connectrpc.com/grpcreflect)
 [![GoDoc](https://pkg.go.dev/badge/connectrpc.com/grpcreflect.svg)](https://pkg.go.dev/connectrpc.com/grpcreflect)
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fconnectrpc%2Fgrpcreflect-go.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Fconnectrpc%2Fgrpcreflect-go?ref=badge_shield)
 
 `connectrpc.com/grpcreflect` adds support for gRPC's server reflection API to any
 `net/http` server &mdash; including those built with [Connect][connect]. With
@@ -79,3 +80,7 @@ Offered under the [Apache 2 license][license].
 [grpcui]: https://github.com/fullstorydev/grpcui
 [grpcurl]: https://github.com/fullstorydev/grpcurl
 [license]: https://github.com/connectrpc/grpcreflect-go/blob/main/LICENSE.txt
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fconnectrpc%2Fgrpcreflect-go.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fconnectrpc%2Fgrpcreflect-go?ref=badge_large)
