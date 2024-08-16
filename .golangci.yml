@@ -29,7 +29,6 @@ linters:
     - cyclop            # covered by gocyclo
     - depguard          # unnecessary for small libraries
     - execinquery       # deprecated in golangci v1.58
-    - err113            # don't _always_ need to wrap errors
     - funlen            # rely on code review to limit function length
     - gocognit          # dubious "cognitive overhead" quantification
     - gofumpt           # prefer standard gofmt
@@ -50,4 +49,4 @@ issues:
   exclude:
     # Don't ban use of fmt.Errorf to create new errors, but the remaining
     # checks from err113 are useful.
-    - "err113: do not define dynamic errors.*"
+    - "do not define dynamic errors.*"
