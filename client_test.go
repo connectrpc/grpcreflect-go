@@ -15,6 +15,7 @@
 package grpcreflect
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -52,7 +53,11 @@ func testClient(t *testing.T, register func(server *http.ServeMux)) {
 	server.StartTLS()
 	t.Cleanup(server.Close)
 
-	ctx := t.Context()
+	// We want to clean up ourselves below, to test stream.Close().
+	// So we don't want the context and thus the stream) to have
+	// already been canceled. So we don't use t.Context().
+	//nolint:usetesting
+	ctx := context.Background()
 	client := NewClient(server.Client(), server.URL, connect.WithGRPC())
 	stream := client.NewStream(ctx)
 	t.Cleanup(func() {
