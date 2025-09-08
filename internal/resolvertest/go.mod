@@ -1,6 +1,6 @@
 module connectrpc.com/grpcreflect/internal/resolvertest
 
-go 1.19
+go 1.24.0
 
 require (
 	connectrpc.com/grpchealth v1.2.0

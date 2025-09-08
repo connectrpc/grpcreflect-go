@@ -1,6 +1,6 @@
 module connectrpc.com/grpcreflect
 
-go 1.21
+go 1.24.0
 
 require (
 	connectrpc.com/connect v1.18.1
