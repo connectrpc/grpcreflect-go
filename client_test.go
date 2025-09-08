@@ -15,7 +15,6 @@
 package grpcreflect
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -53,7 +52,7 @@ func testClient(t *testing.T, register func(server *http.ServeMux)) {
 	server.StartTLS()
 	t.Cleanup(server.Close)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	client := NewClient(server.Client(), server.URL, connect.WithGRPC())
 	stream := client.NewStream(ctx)
 	t.Cleanup(func() {

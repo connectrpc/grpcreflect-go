@@ -16,7 +16,6 @@ package grpcreflect
 
 import (
 	"bytes"
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -83,7 +82,7 @@ func testReflector(t *testing.T, reflector *Reflector, servicePath string) {
 		connect.WithGRPC(),
 	)
 	call := func(req *reflectionv1.ServerReflectionRequest) (*reflectionv1.ServerReflectionResponse, error) {
-		res, err := client.CallUnary(context.Background(), connect.NewRequest(req))
+		res, err := client.CallUnary(t.Context(), connect.NewRequest(req))
 		if err != nil {
 			return nil, err
 		}
@@ -432,7 +431,6 @@ func TestFileDescriptorWithDependencies(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 

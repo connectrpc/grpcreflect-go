@@ -367,7 +367,7 @@ func fileDescriptorWithDependencies(rootFile protoreflect.FileDescriptor, sent *
 			results = append(results, encoded)
 		}
 		imports := curr.Imports()
-		for i := 0; i < imports.Len(); i++ {
+		for i := range imports.Len() {
 			queue = append(queue, imports.Get(i).FileDescriptor)
 		}
 	}
