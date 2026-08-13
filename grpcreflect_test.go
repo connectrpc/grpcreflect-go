@@ -16,15 +16,17 @@ package grpcreflect
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"sort"
 	"testing"
 
-	"connectrpc.com/connect"
-	_ "connectrpc.com/grpcreflect/internal/gen/go/connect/reflecttest/v1"
-	reflectionv1 "connectrpc.com/grpcreflect/internal/gen/go/connectext/grpc/reflection/v1"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
+	_ "connectrpc.com/grpcreflect/v2/internal/gen/go/connect/reflecttest/v1"
+	reflectionv1 "connectrpc.com/grpcreflect/v2/internal/gen/go/connectext/grpc/reflection/v1"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
@@ -38,32 +40,71 @@ const actualServiceName = "connectext.grpc.reflection.v1.ServerReflection"
 
 func TestReflection(t *testing.T) {
 	t.Parallel()
+	staticNamer := NamerFunc(func() []string { return []string{actualServiceName} })
 	t.Run("static", func(t *testing.T) {
 		t.Parallel()
-		reflector := NewStaticReflector(actualServiceName)
-		testReflector(t, reflector, serviceURLPathV1)
+		testReflector(t, serviceURLPathV1, WithNamer(staticNamer))
 	})
 	t.Run("v1alpha1", func(t *testing.T) {
 		t.Parallel()
-		reflector := NewStaticReflector(actualServiceName)
-		testReflector(t, reflector, serviceURLPathV1Alpha)
+		testReflector(t, serviceURLPathV1Alpha, WithNamer(staticNamer))
 	})
 	t.Run("options", func(t *testing.T) {
 		t.Parallel()
-		reflector := NewReflector(
-			&staticNames{names: []string{actualServiceName}},
+		testReflector(t, serviceURLPathV1,
+			WithNamer(staticNamer),
 			WithExtensionResolver(protoregistry.GlobalTypes),
 			WithDescriptorResolver(protoregistry.GlobalFiles),
 		)
-		testReflector(t, reflector, serviceURLPathV1)
 	})
 }
 
-func testReflector(t *testing.T, reflector *Reflector, servicePath string) {
+func TestServerNamer(t *testing.T) {
+	t.Parallel()
+	noopHandler := func(context.Context, connect.Spec, connect.ServerStream) error { return nil }
+	connectServer := connect.NewServer()
+	// Register's own methods carry no protobuf schema, so they are skipped.
+	Register(connectServer)
+	// Services registered after reflection still appear.
+	desc, err := protoregistry.GlobalFiles.FindDescriptorByName("connect.reflecttest.v1.TestService.Do")
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	method, ok := desc.(protoreflect.MethodDescriptor)
+	if !ok {
+		t.Fatalf("got %T, expected a method descriptor", desc)
+	}
+	connectServer.Register(connect.Method{
+		Spec: connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Procedure:  "/connect.reflecttest.v1.TestService/Do",
+			Schema:     method,
+		},
+		Handler: noopHandler,
+	})
+	// A method whose schema isn't protobuf is skipped.
+	connectServer.Register(connect.Method{
+		Spec: connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Procedure:  "/connect.ping.v1.PingService/Ping",
+			Schema:     "not a protobuf schema",
+		},
+		Handler: noopHandler,
+	})
+	namer := &serverNamer{server: connectServer}
+	got := namer.Names()
+	want := []string{"connect.reflecttest.v1.TestService"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, expected %v", got, want)
+	}
+}
+
+func testReflector(t *testing.T, servicePath string, options ...Option) {
 	t.Helper()
+	connectServer := connect.NewServer()
+	Register(connectServer, options...)
 	mux := http.NewServeMux()
-	mux.Handle(NewHandlerV1(reflector))
-	mux.Handle(NewHandlerV1Alpha(reflector))
+	connecthttp.Mount(mux, connectServer)
 	server := httptest.NewUnstartedServer(mux)
 	server.EnableHTTP2 = true
 	server.StartTLS()
@@ -73,20 +114,37 @@ func testReflector(t *testing.T, reflector *Reflector, servicePath string) {
 		ProtoReflect().
 		Descriptor().
 		FullName())
-	client := connect.NewClient[
-		reflectionv1.ServerReflectionRequest,
-		reflectionv1.ServerReflectionResponse,
-	](
+
+	// Use a raw connect.Client with a bidi stream to exercise the handler,
+	// opening a new stream for each call.
+	transport := connecthttp.NewTransport(
 		server.Client(),
-		server.URL+servicePath+methodName,
-		connect.WithGRPC(),
+		server.URL,
+		connecthttp.WithGRPC(),
 	)
+	client := connect.NewClient(transport)
+	spec := connect.Spec{
+		StreamType: connect.StreamTypeBidi,
+		Procedure:  servicePath + methodName,
+	}
+
 	call := func(req *reflectionv1.ServerReflectionRequest) (*reflectionv1.ServerReflectionResponse, error) {
-		res, err := client.CallUnary(t.Context(), connect.NewRequest(req))
+		stream, err := client.CallClientStream(t.Context(), spec)
 		if err != nil {
 			return nil, err
 		}
-		return res.Msg, nil
+		defer stream.Close()
+		if err := stream.Send(req); err != nil {
+			return nil, err
+		}
+		if err := stream.CloseSend(); err != nil {
+			return nil, err
+		}
+		var res reflectionv1.ServerReflectionResponse
+		if err := stream.Receive(&res); err != nil {
+			return nil, err
+		}
+		return &res, nil
 	}
 
 	assertFileDescriptorResponseContains := func(
