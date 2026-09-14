@@ -16,6 +16,7 @@ package grpcreflect
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -493,4 +494,53 @@ type dummyFile struct {
 
 func (f dummyFile) Path() string {
 	return f.path
+}
+
+func TestFileDescriptorWithDependenciesHighFanout(t *testing.T) {
+	t.Parallel()
+
+	// Build an import graph where every file imports the next *two* files. That
+	// keeps the number of files linear in the depth (2*levels) while the number
+	// of distinct paths through the graph is exponential (on the order of
+	// 2^levels). A walk that enqueues each file once finishes instantly; one
+	// that enqueues each path does not finish at this depth, so this also
+	// guards against reintroducing that.
+	const levels = 40
+	fileName := func(prefix string, level int) string {
+		return fmt.Sprintf("%s%d.proto", prefix, level)
+	}
+	files := &protoregistry.Files{}
+	for level := levels - 1; level >= 0; level-- {
+		var deps []string
+		if level+1 < levels {
+			deps = []string{fileName("a", level+1), fileName("b", level+1)}
+		}
+		for _, prefix := range []string{"a", "b"} {
+			file, err := protodesc.NewFile(&descriptorpb.FileDescriptorProto{
+				Name:       new(fileName(prefix, level)),
+				Package:    new(fmt.Sprintf("pkg.%s%d", prefix, level)),
+				Dependency: deps,
+				Syntax:     new("proto3"),
+			}, files)
+			if err != nil {
+				t.Fatalf("unexpected error: %s", err)
+			}
+			if err := files.RegisterFile(file); err != nil {
+				t.Fatalf("unexpected error: %s", err)
+			}
+		}
+	}
+	rootFile, err := files.FindFileByPath(fileName("a", 0))
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	results, err := fileDescriptorWithDependencies(rootFile, &fileDescriptorNameSet{})
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	// Every file except b0.proto is reachable from a0.proto, and each is sent once.
+	if want := levels*2 - 1; len(results) != want {
+		t.Fatalf("expected %d files, got %d", want, len(results))
+	}
 }
