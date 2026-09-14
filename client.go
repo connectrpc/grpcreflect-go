@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -104,9 +105,10 @@ func WithReflectionHost(host string) ClientStreamOption {
 // downloaded (since different servers could potentially have different versions of reflection
 // information).
 type ClientStream struct {
+	clientStreamOptions
+
 	ctx    context.Context //nolint:containedctx
 	client *Client
-	clientStreamOptions
 
 	mu     sync.Mutex
 	stream *reflectStream
@@ -301,9 +303,7 @@ func (cs *ClientStream) getStreamLocked() *reflectStream {
 		cs.isV1 = true
 	}
 	stream := connectClient.CallBidiStream(cs.ctx)
-	for k, v := range cs.headers {
-		stream.RequestHeader()[k] = v
-	}
+	maps.Copy(stream.RequestHeader(), cs.headers)
 	// we can eagerly send request headers; we can ignore return
 	// value because caller will see any errors when calling any
 	// other method on returned stream

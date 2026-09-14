@@ -306,7 +306,7 @@ func TestFileDescriptorWithDependencies(t *testing.T) {
 
 	depFile, err := protodesc.NewFile(
 		&descriptorpb.FileDescriptorProto{
-			Name: proto.String("dep.proto"),
+			Name: new("dep.proto"),
 		}, nil,
 	)
 	if err != nil {
@@ -319,7 +319,7 @@ func TestFileDescriptorWithDependencies(t *testing.T) {
 	}
 
 	rootFileProto := &descriptorpb.FileDescriptorProto{
-		Name: proto.String("root.proto"),
+		Name: new("root.proto"),
 		Dependency: []string{
 			"google/protobuf/descriptor.proto",
 			"connect/reflecttest/v1/reflecttest_ext.proto",
@@ -487,6 +487,7 @@ func (placeholderFile) IsPlaceholder() bool {
 
 type dummyFile struct {
 	protoreflect.FileDescriptor
+
 	path string
 }
 

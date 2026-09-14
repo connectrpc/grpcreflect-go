@@ -32,7 +32,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
+	"slices"
 
 	"connectrpc.com/connect"
 	reflectionv1 "connectrpc.com/grpcreflect/internal/gen/go/connectext/grpc/reflection/v1"
@@ -271,9 +271,7 @@ func (r *Reflector) getAllExtensionNumbersOfType(fqn string) ([]int32, error) {
 			return nil, err
 		}
 	}
-	sort.Slice(nums, func(i, j int) bool {
-		return nums[i] < nums[j]
-	})
+	slices.Sort(nums)
 	return nums, nil
 }
 

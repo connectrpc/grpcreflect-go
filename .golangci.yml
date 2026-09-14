@@ -1,52 +1,78 @@
-linters-settings:
-  errcheck:
-    check-type-assertions: true
-  exhaustruct:
-    include:
-      # No zero values for param structs.
-      - 'connectrpc\.com/grpcreflect\..*[pP]arams'
-  forbidigo:
-    forbid:
-      - '^fmt\.Print'
-      - '^log\.'
-      - '^print$'
-      - '^println$'
-      - '^panic$'
-  godox:
-    # TODO, OPT, etc. comments are fine to commit. Use FIXME comments for
-    # temporary hacks, and use godox to prevent committing them.
-    keywords: [FIXME]
-  varnamelen:
-    ignore-decls:
-      - T any
-      - i int
-      - 't *testing.T'
-      - tb testing.TB
-      - wg sync.WaitGroup
+version: "2"
 linters:
-  enable-all: true
+  default: all
   disable:
+    # "default: all" enables deprecated linters alongside their replacements,
+    # so the superseded names are disabled explicitly here.
     - cyclop            # covered by gocyclo
     - depguard          # unnecessary for small libraries
+    - exhaustruct       # deprecated; superseded by exhaustruct_v5
     - funlen            # rely on code review to limit function length
     - gocognit          # dubious "cognitive overhead" quantification
-    - gofumpt           # prefer standard gofmt
-    - goimports         # rely on gci instead
+    - gomodguard        # deprecated; superseded by gomodguard_v2
     - inamedparam       # convention is not followed
     - ireturn           # "accept interfaces, return structs" isn't ironclad
     - lll               # don't want hard limits for line length
     - maintidx          # covered by gocyclo
     - mnd               # some unnamed constants are okay
     - nlreturn          # generous whitespace violates house style
+    - noinlineerr       # inline "if err := ..." is idiomatic and used throughout
     - nonamedreturns    # named returns are fine; it's *bare* returns that are bad
     - protogetter       # too many false positives
-    - tenv              # deprecated in golangci-lint v1.64.0
     - testpackage       # internal tests are fine
     - wrapcheck         # don't _always_ need to wrap errors
-    - wsl               # generous whitespace violates house style
-issues:
-  exclude-dirs-use-default: false
-  exclude:
-    # Don't ban use of fmt.Errorf to create new errors, but the remaining
-    # checks from err113 are useful.
-    - "do not define dynamic errors.*"
+    - wsl               # deprecated; superseded by wsl_v5
+    - wsl_v5            # generous whitespace violates house style
+  settings:
+    errcheck:
+      check-type-assertions: true
+    exhaustruct_v5:
+      # v5 only treats enforce-patterns as a whitelist in explicit mode;
+      # without it every struct literal is checked. See the v4 -include-rx to
+      # v5 -explicit/-enforce-rx migration.
+      explicit-mode: true
+      enforce-patterns:
+        # No zero values for param structs.
+        - connectrpc\.com/grpcreflect\..*[pP]arams
+    forbidigo:
+      forbid:
+        - pattern: ^fmt\.Print
+        - pattern: ^log\.
+        - pattern: ^print$
+        - pattern: ^println$
+        - pattern: ^panic$
+    godox:
+      # TODO, OPT, etc. comments are fine to commit. Use FIXME comments for
+      # temporary hacks, and use godox to prevent committing them.
+      keywords: [FIXME]
+    varnamelen:
+      ignore-decls:
+        - T any
+        - i int
+        - t *testing.T
+        - tb testing.TB
+        - wg sync.WaitGroup
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      # Don't ban use of fmt.Errorf to create new errors, but the remaining
+      # checks from err113 are useful.
+      - path: (.+)\.go$
+        text: do not define dynamic errors.*
+      # Repeated literals in table-driven tests read better inline.
+      - path: _test\.go
+        linters:
+          - goconst
+formatters:
+  # gofumpt is omitted: prefer standard gofmt. goimports is omitted: rely on
+  # gci instead.
+  enable:
+    - gci
+    - gofmt
+  exclusions:
+    generated: lax
