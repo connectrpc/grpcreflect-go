@@ -2,7 +2,6 @@ grpcreflect
 ===========
 
 [![Build](https://github.com/connectrpc/grpcreflect-go/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/connectrpc/grpcreflect-go/actions/workflows/ci.yaml)
-[![Report Card](https://goreportcard.com/badge/connectrpc.com/grpcreflect)](https://goreportcard.com/report/connectrpc.com/grpcreflect)
 [![GoDoc](https://pkg.go.dev/badge/connectrpc.com/grpcreflect.svg)](https://pkg.go.dev/connectrpc.com/grpcreflect)
 
 `connectrpc.com/grpcreflect` adds support for gRPC's server reflection API to any
