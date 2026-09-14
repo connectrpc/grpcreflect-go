@@ -20,12 +20,17 @@ import (
 	"log"
 	"net/http"
 
-	"connectrpc.com/grpcreflect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
+	"connectrpc.com/grpcreflect/v2"
 )
 
 func ExampleNewClient() {
 	// Create a client to the Connect demo server.
-	client := grpcreflect.NewClient(http.DefaultClient, "https://demo.connectrpc.com")
+	client := grpcreflect.NewClient(connect.NewClient(connecthttp.NewTransport(
+		http.DefaultClient,
+		"https://demo.connectrpc.com",
+	)))
 	// Create a new reflection stream.
 	stream := client.NewStream(context.Background())
 	// Ask the server for its services and for the file descriptor that contains the first one.
