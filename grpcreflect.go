@@ -347,6 +347,15 @@ func fileDescriptorWithDependencies(rootFile protoreflect.FileDescriptor, sent *
 		return nil, protoregistry.NotFound
 	}
 	results := make([][]byte, 0, 1)
+	// Only enqueue each file once. The `sent` set keeps a file from being
+	// serialized twice, but without this the imports of an already-seen file are
+	// still re-enqueued, so the walk covers every path through the graph rather
+	// than every file in it. For a large graph with a high branching factor
+	// (files that import many other files), this could be a substantial
+	// difference. And the re-enqueue could happen for every request on the stream,
+	// even once most of the graph has been sent and there's little left to
+	// serialize.
+	var visited fileDescriptorNameSet
 	queue := []protoreflect.FileDescriptor{rootFile}
 	for len(queue) > 0 {
 		curr := queue[0]
@@ -354,6 +363,10 @@ func fileDescriptorWithDependencies(rootFile protoreflect.FileDescriptor, sent *
 		if curr.IsPlaceholder() {
 			continue // don't bother serializing placeholders
 		}
+		if visited.Contains(curr) {
+			continue
+		}
+		visited.Insert(curr)
 		if len(results) == 0 || !sent.Contains(curr) { // always send root fd
 			// Mark as sent immediately. If we hit an error marshaling below, there's
 			// no point trying again later.
