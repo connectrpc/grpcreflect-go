@@ -50,10 +50,12 @@ func NewClient(client *connect.Client) *Client {
 		specV1: connect.Spec{
 			StreamType: connect.StreamTypeBidi,
 			Procedure:  serviceURLPathV1 + methodName,
+			Schema:     reflectSchema(ReflectV1ServiceName),
 		},
 		specV1Alpha: connect.Spec{
 			StreamType: connect.StreamTypeBidi,
 			Procedure:  serviceURLPathV1Alpha + methodName,
+			Schema:     reflectSchema(ReflectV1AlphaServiceName),
 		},
 	}
 }

@@ -61,6 +61,24 @@ var (
 	globalFiles = resolverHackForConnectext(embeddedDescriptors)
 )
 
+// reflectSchema returns the schema for serviceName's reflection method. The
+// generated Go types in this module carry a "connectext." package prefix, so
+// the schema comes from the authoritative embedded descriptors instead: the
+// service name a client sees must match the path the method is served on.
+func reflectSchema(serviceName string) protoreflect.MethodDescriptor {
+	descriptor, err := globalFiles.FindDescriptorByName(
+		protoreflect.FullName(serviceName + "." + methodName),
+	)
+	if err != nil {
+		return nil
+	}
+	method, ok := descriptor.(protoreflect.MethodDescriptor)
+	if !ok {
+		return nil
+	}
+	return method
+}
+
 // Register registers the gRPC server reflection API on server, serving both
 // the v1 and v1alpha versions of the service. The v1alpha version supports
 // tools that haven't updated to the v1 API.
@@ -91,11 +109,12 @@ func Register(server *connect.Server, options ...Option) {
 		option.apply(reflector)
 	}
 	// v1 is binary-compatible with v1alpha, so we only need to change paths.
-	for _, servicePath := range []string{serviceURLPathV1, serviceURLPathV1Alpha} {
+	for _, serviceName := range []string{ReflectV1ServiceName, ReflectV1AlphaServiceName} {
 		server.Register(connect.Method{
 			Spec: connect.Spec{
 				StreamType: connect.StreamTypeBidi,
-				Procedure:  servicePath + methodName,
+				Procedure:  "/" + serviceName + "/" + methodName,
+				Schema:     reflectSchema(serviceName),
 			},
 			Handler: reflector.serverReflectionInfo,
 		})

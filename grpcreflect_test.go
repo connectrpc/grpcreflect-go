@@ -94,7 +94,11 @@ func TestServerNamer(t *testing.T) {
 	})
 	namer := &serverNamer{server: connectServer}
 	got := namer.Names()
-	want := []string{"connect.reflecttest.v1.TestService"}
+	want := []string{
+		"connect.reflecttest.v1.TestService",
+		ReflectV1ServiceName,
+		ReflectV1AlphaServiceName,
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, expected %v", got, want)
 	}
