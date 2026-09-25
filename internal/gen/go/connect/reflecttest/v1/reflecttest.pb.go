@@ -24,7 +24,6 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
-	sync "sync"
 	unsafe "unsafe"
 )
 
@@ -36,11 +35,13 @@ const (
 )
 
 type Extendable struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	Number          *int32                 `protobuf:"varint,1,req,name=number" json:"number,omitempty"`
-	extensionFields protoimpl.ExtensionFields
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state                  protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Number      int32                  `protobuf:"varint,1,req,name=number"`
+	XXX_raceDetectHookData protoimpl.RaceDetectHookData
+	XXX_presence           [1]uint32
+	extensionFields        protoimpl.ExtensionFields
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *Extendable) Reset() {
@@ -68,23 +69,52 @@ func (x *Extendable) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use Extendable.ProtoReflect.Descriptor instead.
-func (*Extendable) Descriptor() ([]byte, []int) {
-	return file_connect_reflecttest_v1_reflecttest_proto_rawDescGZIP(), []int{0}
-}
-
 func (x *Extendable) GetNumber() int32 {
-	if x != nil && x.Number != nil {
-		return *x.Number
+	if x != nil {
+		return x.xxx_hidden_Number
 	}
 	return 0
 }
 
+func (x *Extendable) SetNumber(v int32) {
+	x.xxx_hidden_Number = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 1)
+}
+
+func (x *Extendable) HasNumber() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
+}
+
+func (x *Extendable) ClearNumber() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
+	x.xxx_hidden_Number = 0
+}
+
+type Extendable_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Number *int32
+}
+
+func (b0 Extendable_builder) Build() *Extendable {
+	m0 := &Extendable{}
+	b, x := &b0, m0
+	_, _ = b, x
+	if b.Number != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 1)
+		x.xxx_hidden_Number = *b.Number
+	}
+	return m0
+}
+
 type DoRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Ext           *Extendable            `protobuf:"bytes,1,opt,name=ext" json:"ext,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Ext *Extendable            `protobuf:"bytes,1,opt,name=ext"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *DoRequest) Reset() {
@@ -112,20 +142,44 @@ func (x *DoRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use DoRequest.ProtoReflect.Descriptor instead.
-func (*DoRequest) Descriptor() ([]byte, []int) {
-	return file_connect_reflecttest_v1_reflecttest_proto_rawDescGZIP(), []int{1}
-}
-
 func (x *DoRequest) GetExt() *Extendable {
 	if x != nil {
-		return x.Ext
+		return x.xxx_hidden_Ext
 	}
 	return nil
 }
 
+func (x *DoRequest) SetExt(v *Extendable) {
+	x.xxx_hidden_Ext = v
+}
+
+func (x *DoRequest) HasExt() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Ext != nil
+}
+
+func (x *DoRequest) ClearExt() {
+	x.xxx_hidden_Ext = nil
+}
+
+type DoRequest_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Ext *Extendable
+}
+
+func (b0 DoRequest_builder) Build() *DoRequest {
+	m0 := &DoRequest{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Ext = b.Ext
+	return m0
+}
+
 type DoResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state         protoimpl.MessageState `protogen:"opaque.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -155,9 +209,16 @@ func (x *DoResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use DoResponse.ProtoReflect.Descriptor instead.
-func (*DoResponse) Descriptor() ([]byte, []int) {
-	return file_connect_reflecttest_v1_reflecttest_proto_rawDescGZIP(), []int{2}
+type DoResponse_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+}
+
+func (b0 DoResponse_builder) Build() *DoResponse {
+	m0 := &DoResponse{}
+	b, x := &b0, m0
+	_, _ = b, x
+	return m0
 }
 
 var File_connect_reflecttest_v1_reflecttest_proto protoreflect.FileDescriptor
@@ -176,18 +237,6 @@ const file_connect_reflecttest_v1_reflecttest_proto_rawDesc = "" +
 	"\vTestService\x12K\n" +
 	"\x02Do\x12!.connect.reflecttest.v1.DoRequest\x1a\".connect.reflecttest.v1.DoResponseB\xfc\x01\n" +
 	"\x1acom.connect.reflecttest.v1B\x10ReflecttestProtoP\x01ZRconnectrpc.com/grpcreflect/v2/internal/gen/go/connect/reflecttest/v1;reflecttestv1\xa2\x02\x03CRX\xaa\x02\x16Connect.Reflecttest.V1\xca\x02\x16Connect\\Reflecttest\\V1\xe2\x02\"Connect\\Reflecttest\\V1\\GPBMetadata\xea\x02\x18Connect::Reflecttest::V1"
-
-var (
-	file_connect_reflecttest_v1_reflecttest_proto_rawDescOnce sync.Once
-	file_connect_reflecttest_v1_reflecttest_proto_rawDescData []byte
-)
-
-func file_connect_reflecttest_v1_reflecttest_proto_rawDescGZIP() []byte {
-	file_connect_reflecttest_v1_reflecttest_proto_rawDescOnce.Do(func() {
-		file_connect_reflecttest_v1_reflecttest_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_connect_reflecttest_v1_reflecttest_proto_rawDesc), len(file_connect_reflecttest_v1_reflecttest_proto_rawDesc)))
-	})
-	return file_connect_reflecttest_v1_reflecttest_proto_rawDescData
-}
 
 var file_connect_reflecttest_v1_reflecttest_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_connect_reflecttest_v1_reflecttest_proto_goTypes = []any{

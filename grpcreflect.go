@@ -34,7 +34,7 @@ import (
 	"sort"
 
 	"connectrpc.com/connect/v2"
-	reflectionv1 "connectrpc.com/grpcreflect/v2/internal/gen/go/connectext/grpc/reflection/v1"
+	"connectrpc.com/grpcreflect/v2/internal/gen/go/connectext/grpc/reflection/v1"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -146,68 +146,63 @@ func (r *reflector) serverReflectionInfo(
 		}
 		// The server reflection API sends file descriptors as uncompressed
 		// Protobuf-serialized bytes.
-		response := &reflectionv1.ServerReflectionResponse{
-			ValidHost:       request.Host,
+		response := reflectionv1.ServerReflectionResponse_builder{
+			ValidHost:       request.GetHost(),
 			OriginalRequest: &request,
-		}
-		switch messageRequest := request.MessageRequest.(type) {
-		case *reflectionv1.ServerReflectionRequest_FileByFilename:
-			data, err := r.getFileByFilename(messageRequest.FileByFilename, fileDescriptorsSent)
+		}.Build()
+		switch request.WhichMessageRequest() {
+		case reflectionv1.ServerReflectionRequest_FileByFilename_case:
+			data, err := r.getFileByFilename(request.GetFileByFilename(), fileDescriptorsSent)
 			if err != nil {
-				response.MessageResponse = newNotFoundResponse(err)
+				response.SetErrorResponse(newNotFoundResponse(err))
 			} else {
-				response.MessageResponse = &reflectionv1.ServerReflectionResponse_FileDescriptorResponse{
-					FileDescriptorResponse: &reflectionv1.FileDescriptorResponse{FileDescriptorProto: data},
-				}
+				response.SetFileDescriptorResponse(newFileDescriptorResponse(data))
 			}
-		case *reflectionv1.ServerReflectionRequest_FileContainingSymbol:
+		case reflectionv1.ServerReflectionRequest_FileContainingSymbol_case:
 			data, err := r.getFileContainingSymbol(
-				messageRequest.FileContainingSymbol,
+				request.GetFileContainingSymbol(),
 				fileDescriptorsSent,
 			)
 			if err != nil {
-				response.MessageResponse = newNotFoundResponse(err)
+				response.SetErrorResponse(newNotFoundResponse(err))
 			} else {
-				response.MessageResponse = &reflectionv1.ServerReflectionResponse_FileDescriptorResponse{
-					FileDescriptorResponse: &reflectionv1.FileDescriptorResponse{FileDescriptorProto: data},
-				}
+				response.SetFileDescriptorResponse(newFileDescriptorResponse(data))
 			}
-		case *reflectionv1.ServerReflectionRequest_FileContainingExtension:
-			msgFQN := messageRequest.FileContainingExtension.ContainingType
-			extNumber := messageRequest.FileContainingExtension.ExtensionNumber
+		case reflectionv1.ServerReflectionRequest_FileContainingExtension_case:
+			msgFQN := request.GetFileContainingExtension().GetContainingType()
+			extNumber := request.GetFileContainingExtension().GetExtensionNumber()
 			data, err := r.getFileContainingExtension(msgFQN, extNumber, fileDescriptorsSent)
 			if err != nil {
-				response.MessageResponse = newNotFoundResponse(err)
+				response.SetErrorResponse(newNotFoundResponse(err))
 			} else {
-				response.MessageResponse = &reflectionv1.ServerReflectionResponse_FileDescriptorResponse{
-					FileDescriptorResponse: &reflectionv1.FileDescriptorResponse{FileDescriptorProto: data},
-				}
+				response.SetFileDescriptorResponse(newFileDescriptorResponse(data))
 			}
-		case *reflectionv1.ServerReflectionRequest_AllExtensionNumbersOfType:
-			nums, err := r.getAllExtensionNumbersOfType(messageRequest.AllExtensionNumbersOfType)
+		case reflectionv1.ServerReflectionRequest_AllExtensionNumbersOfType_case:
+			fqn := request.GetAllExtensionNumbersOfType()
+			nums, err := r.getAllExtensionNumbersOfType(fqn)
 			if err != nil {
-				response.MessageResponse = newNotFoundResponse(err)
+				response.SetErrorResponse(newNotFoundResponse(err))
 			} else {
-				response.MessageResponse = &reflectionv1.ServerReflectionResponse_AllExtensionNumbersResponse{
-					AllExtensionNumbersResponse: &reflectionv1.ExtensionNumberResponse{
-						BaseTypeName:    messageRequest.AllExtensionNumbersOfType,
-						ExtensionNumber: nums,
-					},
-				}
+				response.SetAllExtensionNumbersResponse(reflectionv1.ExtensionNumberResponse_builder{
+					BaseTypeName:    fqn,
+					ExtensionNumber: nums,
+				}.Build())
 			}
-		case *reflectionv1.ServerReflectionRequest_ListServices:
+		case reflectionv1.ServerReflectionRequest_ListServices_case:
 			services := r.namer.Names()
 			serviceResponses := make([]*reflectionv1.ServiceResponse, len(services))
 			for i, name := range services {
-				serviceResponses[i] = &reflectionv1.ServiceResponse{Name: name}
+				serviceResponses[i] = reflectionv1.ServiceResponse_builder{Name: name}.Build()
 			}
-			response.MessageResponse = &reflectionv1.ServerReflectionResponse_ListServicesResponse{
-				ListServicesResponse: &reflectionv1.ListServiceResponse{Service: serviceResponses},
-			}
+			response.SetListServicesResponse(reflectionv1.ListServiceResponse_builder{
+				Service: serviceResponses,
+			}.Build())
+		case reflectionv1.ServerReflectionRequest_MessageRequest_not_set_case:
+			return connect.Errorf(connect.CodeInvalidArgument, "invalid MessageRequest: not set")
 		default:
 			return connect.Errorf(connect.CodeInvalidArgument,
 				"invalid MessageRequest: %v",
-				request.MessageRequest,
+				request.WhichMessageRequest(),
 			)
 		}
 		if err := stream.Send(response); err != nil {
@@ -389,13 +384,15 @@ func fileDescriptorWithDependencies(rootFile protoreflect.FileDescriptor, sent *
 	return results, nil
 }
 
-func newNotFoundResponse(err error) *reflectionv1.ServerReflectionResponse_ErrorResponse {
-	return &reflectionv1.ServerReflectionResponse_ErrorResponse{
-		ErrorResponse: &reflectionv1.ErrorResponse{
-			ErrorCode:    int32(connect.CodeNotFound),
-			ErrorMessage: err.Error(),
-		},
-	}
+func newNotFoundResponse(err error) *reflectionv1.ErrorResponse {
+	return reflectionv1.ErrorResponse_builder{
+		ErrorCode:    int32(connect.CodeNotFound),
+		ErrorMessage: err.Error(),
+	}.Build()
+}
+
+func newFileDescriptorResponse(data [][]byte) *reflectionv1.FileDescriptorResponse {
+	return reflectionv1.FileDescriptorResponse_builder{FileDescriptorProto: data}.Build()
 }
 
 type namerOption struct {

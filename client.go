@@ -120,11 +120,9 @@ type ClientStream struct {
 // This operation sends a request message on the stream and waits for the corresponding
 // response.
 func (cs *ClientStream) ListServices() ([]protoreflect.FullName, error) {
-	resp, err := cs.send(&reflectionv1.ServerReflectionRequest{
-		MessageRequest: &reflectionv1.ServerReflectionRequest_ListServices{
-			ListServices: "",
-		},
-	})
+	resp, err := cs.send(reflectionv1.ServerReflectionRequest_builder{
+		ListServices: new(""),
+	}.Build())
 	if err != nil {
 		return nil, err
 	}
@@ -132,9 +130,9 @@ func (cs *ClientStream) ListServices() ([]protoreflect.FullName, error) {
 	if respNames == nil {
 		return nil, errWrongResponseType(resp, "list_services")
 	}
-	names := make([]protoreflect.FullName, len(respNames.Service))
-	for i, svc := range respNames.Service {
-		names[i] = protoreflect.FullName(svc.Name)
+	names := make([]protoreflect.FullName, len(respNames.GetService()))
+	for i, svc := range respNames.GetService() {
+		names[i] = protoreflect.FullName(svc.GetName())
 	}
 	return names, nil
 }
@@ -152,11 +150,9 @@ func (cs *ClientStream) ListServices() ([]protoreflect.FullName, error) {
 // This operation sends a request message on the stream and waits for the corresponding
 // response.
 func (cs *ClientStream) FileByFilename(filename string) ([]*descriptorpb.FileDescriptorProto, error) {
-	return cs.getDescriptors("file_by_filename", &reflectionv1.ServerReflectionRequest{
-		MessageRequest: &reflectionv1.ServerReflectionRequest_FileByFilename{
-			FileByFilename: filename,
-		},
-	})
+	return cs.getDescriptors("file_by_filename", reflectionv1.ServerReflectionRequest_builder{
+		FileByFilename: new(filename),
+	}.Build())
 }
 
 // FileContainingSymbol retrieves the descriptor for the file that defines the element
@@ -173,11 +169,9 @@ func (cs *ClientStream) FileByFilename(filename string) ([]*descriptorpb.FileDes
 // This operation sends a request message on the stream and waits for the corresponding
 // response.
 func (cs *ClientStream) FileContainingSymbol(name protoreflect.FullName) ([]*descriptorpb.FileDescriptorProto, error) {
-	return cs.getDescriptors("file_containing_symbol", &reflectionv1.ServerReflectionRequest{
-		MessageRequest: &reflectionv1.ServerReflectionRequest_FileContainingSymbol{
-			FileContainingSymbol: string(name),
-		},
-	})
+	return cs.getDescriptors("file_containing_symbol", reflectionv1.ServerReflectionRequest_builder{
+		FileContainingSymbol: new(string(name)),
+	}.Build())
 }
 
 // FileContainingExtension retrieves the descriptor for the file that defines the extension
@@ -194,14 +188,12 @@ func (cs *ClientStream) FileContainingSymbol(name protoreflect.FullName) ([]*des
 // This operation sends a request message on the stream and waits for the corresponding
 // response.
 func (cs *ClientStream) FileContainingExtension(messageName protoreflect.FullName, extensionNumber protoreflect.FieldNumber) ([]*descriptorpb.FileDescriptorProto, error) {
-	return cs.getDescriptors("file_containing_extension", &reflectionv1.ServerReflectionRequest{
-		MessageRequest: &reflectionv1.ServerReflectionRequest_FileContainingExtension{
-			FileContainingExtension: &reflectionv1.ExtensionRequest{
-				ContainingType:  string(messageName),
-				ExtensionNumber: int32(extensionNumber),
-			},
-		},
-	})
+	return cs.getDescriptors("file_containing_extension", reflectionv1.ServerReflectionRequest_builder{
+		FileContainingExtension: reflectionv1.ExtensionRequest_builder{
+			ContainingType:  string(messageName),
+			ExtensionNumber: int32(extensionNumber),
+		}.Build(),
+	}.Build())
 }
 
 // AllExtensionNumbers retrieves the tag numbers for all extensions of the given message that
@@ -215,11 +207,9 @@ func (cs *ClientStream) FileContainingExtension(messageName protoreflect.FullNam
 // This operation sends a request message on the stream and waits for the corresponding
 // response.
 func (cs *ClientStream) AllExtensionNumbers(messageName protoreflect.FullName) ([]protoreflect.FieldNumber, error) {
-	resp, err := cs.send(&reflectionv1.ServerReflectionRequest{
-		MessageRequest: &reflectionv1.ServerReflectionRequest_AllExtensionNumbersOfType{
-			AllExtensionNumbersOfType: string(messageName),
-		},
-	})
+	resp, err := cs.send(reflectionv1.ServerReflectionRequest_builder{
+		AllExtensionNumbersOfType: new(string(messageName)),
+	}.Build())
 	if err != nil {
 		return nil, err
 	}
@@ -227,8 +217,8 @@ func (cs *ClientStream) AllExtensionNumbers(messageName protoreflect.FullName) (
 	if respExtNumbers == nil {
 		return nil, errWrongResponseType(resp, "all_extension_numbers")
 	}
-	extNumbers := make([]protoreflect.FieldNumber, len(respExtNumbers.ExtensionNumber))
-	for i, num := range respExtNumbers.ExtensionNumber {
+	extNumbers := make([]protoreflect.FieldNumber, len(respExtNumbers.GetExtensionNumber()))
+	for i, num := range respExtNumbers.GetExtensionNumber() {
 		extNumbers[i] = protoreflect.FieldNumber(num)
 	}
 	return extNumbers, nil
@@ -297,8 +287,8 @@ func (cs *ClientStream) getDescriptors(operation string, req *reflectionv1.Serve
 	if respDescriptors == nil {
 		return nil, errWrongResponseType(resp, operation)
 	}
-	descriptors := make([]*descriptorpb.FileDescriptorProto, len(respDescriptors.FileDescriptorProto))
-	for i, data := range respDescriptors.FileDescriptorProto {
+	descriptors := make([]*descriptorpb.FileDescriptorProto, len(respDescriptors.GetFileDescriptorProto()))
+	for i, data := range respDescriptors.GetFileDescriptorProto() {
 		fileDescriptor := &descriptorpb.FileDescriptorProto{}
 		if err := proto.Unmarshal(data, fileDescriptor); err != nil {
 			return nil, fmt.Errorf("reply to %s contained invalid descriptor proto: %w", operation, err)
@@ -309,7 +299,7 @@ func (cs *ClientStream) getDescriptors(operation string, req *reflectionv1.Serve
 }
 
 func (cs *ClientStream) send(req *reflectionv1.ServerReflectionRequest) (*reflectionv1.ServerReflectionResponse, error) {
-	req.Host = cs.host
+	req.SetHost(cs.host)
 	// Sending on a bidi stream is usually thread-safe. But the replies are in the same order
 	// as the requests. So to prevent concurrent use from interleaving replies (which would
 	// require much more logic here to properly correlate replies with requests), we send and
@@ -344,10 +334,10 @@ func (cs *ClientStream) send(req *reflectionv1.ServerReflectionRequest) (*reflec
 		}
 		if errResp := res.GetErrorResponse(); errResp != nil {
 			code := connect.CodeInternal
-			if errResp.ErrorCode > 0 {
-				code = connect.Code(errResp.ErrorCode)
+			if errorCode := errResp.GetErrorCode(); errorCode > 0 {
+				code = connect.Code(errorCode)
 			}
-			return nil, connect.NewError(code, errResp.ErrorMessage).WithRemote()
+			return nil, connect.NewError(code, errResp.GetErrorMessage()).WithRemote()
 		}
 		return &res, nil
 	}
@@ -426,25 +416,26 @@ func IsReflectionStreamBroken(err error) bool {
 }
 
 func errWrongResponseType(resp *reflectionv1.ServerReflectionResponse, operation string) error {
-	return fmt.Errorf("protocol error: wrong response type %T in reply to %s", resp.MessageResponse, operation)
+	return fmt.Errorf("protocol error: wrong response type %s in reply to %s", respType(resp), operation)
 }
 
 func respType(msg *reflectionv1.ServerReflectionResponse) string {
-	switch resp := msg.MessageResponse.(type) {
-	case *reflectionv1.ServerReflectionResponse_FileDescriptorResponse:
+	switch msg.WhichMessageResponse() {
+	case reflectionv1.ServerReflectionResponse_FileDescriptorResponse_case:
 		return "file_descriptor_response"
-	case *reflectionv1.ServerReflectionResponse_AllExtensionNumbersResponse:
+	case reflectionv1.ServerReflectionResponse_AllExtensionNumbersResponse_case:
 		return "all_extension_numbers_response"
-	case *reflectionv1.ServerReflectionResponse_ListServicesResponse:
+	case reflectionv1.ServerReflectionResponse_ListServicesResponse_case:
 		return "list_services_response"
-	case *reflectionv1.ServerReflectionResponse_ErrorResponse:
-		if errorCode := resp.ErrorResponse.ErrorCode; errorCode > 0 {
+	case reflectionv1.ServerReflectionResponse_ErrorResponse_case:
+		errorCode := msg.GetErrorResponse().GetErrorCode()
+		if errorCode > 0 {
 			return fmt.Sprintf("error_response: %v", connect.Code(errorCode))
 		}
-		return fmt.Sprintf("error_response: %d", resp.ErrorResponse.ErrorCode)
-	case nil:
+		return fmt.Sprintf("error_response: %d", errorCode)
+	case reflectionv1.ServerReflectionResponse_MessageResponse_not_set_case:
 		return "empty?"
 	default:
-		return fmt.Sprintf("unknown: %T", resp)
+		return fmt.Sprintf("unknown: %v", msg.WhichMessageResponse())
 	}
 }
