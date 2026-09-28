@@ -19,13 +19,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
-	"net/http"
 	"sync"
 	"sync/atomic"
 
-	"connectrpc.com/connect"
-	reflectionv1 "connectrpc.com/grpcreflect/internal/gen/go/connectext/grpc/reflection/v1"
+	"connectrpc.com/connect/v2"
+	reflectionv1 "connectrpc.com/grpcreflect/v2/internal/gen/go/connectext/grpc/reflection/v1"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
@@ -33,29 +31,33 @@ import (
 
 // Client is a Connect client for the server reflection service.
 type Client struct {
-	clientV1        *reflectClient
-	clientV1Alpha   *reflectClient
+	client      *connect.Client
+	specV1      connect.Spec
+	specV1Alpha connect.Spec
+
 	v1unimplemented atomic.Bool
 }
 
-// NewClient returns a client for interacting with the gRPC server reflection service.
-// The given HTTP client, base URL, and options are used to connect to the service.
+// NewClient returns a client for interacting with the gRPC server reflection
+// service using the given Connect client.
 //
 // This client will try "v1" of the service first (grpc.reflection.v1.ServerReflection).
 // If this results in a "Not Implemented" error, the client will fall back to "v1alpha"
 // of the service (grpc.reflection.v1alpha.ServerReflection).
-func NewClient(httpClient connect.HTTPClient, baseURL string, options ...connect.ClientOption) *Client {
-	clientV1 := connect.NewClient[reflectionv1.ServerReflectionRequest, reflectionv1.ServerReflectionResponse](
-		httpClient,
-		baseURL+serviceURLPathV1+methodName,
-		options...,
-	)
-	clientV1Alpha := connect.NewClient[reflectionv1.ServerReflectionRequest, reflectionv1.ServerReflectionResponse](
-		httpClient,
-		baseURL+serviceURLPathV1Alpha+methodName,
-		options...,
-	)
-	return &Client{clientV1: clientV1, clientV1Alpha: clientV1Alpha}
+func NewClient(client *connect.Client) *Client {
+	return &Client{
+		client: client,
+		specV1: connect.Spec{
+			StreamType: connect.StreamTypeBidi,
+			Procedure:  serviceURLPathV1 + methodName,
+			Schema:     reflectSchema(ReflectV1ServiceName),
+		},
+		specV1Alpha: connect.Spec{
+			StreamType: connect.StreamTypeBidi,
+			Procedure:  serviceURLPathV1Alpha + methodName,
+			Schema:     reflectSchema(ReflectV1AlphaServiceName),
+		},
+	}
 }
 
 // NewStream creates a new stream that is used to download reflection information from
@@ -84,12 +86,6 @@ type ClientStreamOption interface {
 	apply(*clientStreamOptions)
 }
 
-// WithRequestHeaders is an option that allows the caller to provide the request headers
-// that will be sent when a stream is created.
-func WithRequestHeaders(headers http.Header) ClientStreamOption {
-	return &withRequestHeaders{headers: headers}
-}
-
 // WithReflectionHost is an option that allows the caller to provide the hostname that
 // will be included with all requests on the stream. This may be used by the server
 // when deciding what source of reflection information to use (which could include
@@ -111,33 +107,8 @@ type ClientStream struct {
 	client *Client
 
 	mu     sync.Mutex
-	stream *reflectStream
+	stream connect.ClientStream
 	isV1   bool
-}
-
-// Spec returns the specification for the reflection RPC.
-func (cs *ClientStream) Spec() connect.Spec {
-	return cs.getStream().Spec()
-}
-
-// Peer describes the server for the RPC.
-func (cs *ClientStream) Peer() connect.Peer {
-	return cs.getStream().Peer()
-}
-
-// ResponseHeader returns the headers received from the server. It blocks until
-// the response headers have been sent by the server.
-//
-// It is possible that the server implementation won't send back response headers
-// until after it receives the first request message, sending back headers along
-// with the first response message. So it is safest to either call this method
-// from a different goroutine than the one that invokes other stream operations
-// or to not call this until after the first such operation has completed.
-//
-// The operations that send a message on the stream are [ListServices], [FileByFilename],
-// [FileContainingSymbol], [FileContainingExtension], and [AllExtensionNumbers].
-func (cs *ClientStream) ResponseHeader() http.Header {
-	return cs.getStream().ResponseHeader()
 }
 
 // ListServices retrieves the fully-qualified names for services exposed the server.
@@ -149,11 +120,9 @@ func (cs *ClientStream) ResponseHeader() http.Header {
 // This operation sends a request message on the stream and waits for the corresponding
 // response.
 func (cs *ClientStream) ListServices() ([]protoreflect.FullName, error) {
-	resp, err := cs.send(&reflectionv1.ServerReflectionRequest{
-		MessageRequest: &reflectionv1.ServerReflectionRequest_ListServices{
-			ListServices: "",
-		},
-	})
+	resp, err := cs.send(reflectionv1.ServerReflectionRequest_builder{
+		ListServices: new(""),
+	}.Build())
 	if err != nil {
 		return nil, err
 	}
@@ -161,9 +130,9 @@ func (cs *ClientStream) ListServices() ([]protoreflect.FullName, error) {
 	if respNames == nil {
 		return nil, errWrongResponseType(resp, "list_services")
 	}
-	names := make([]protoreflect.FullName, len(respNames.Service))
-	for i, svc := range respNames.Service {
-		names[i] = protoreflect.FullName(svc.Name)
+	names := make([]protoreflect.FullName, len(respNames.GetService()))
+	for i, svc := range respNames.GetService() {
+		names[i] = protoreflect.FullName(svc.GetName())
 	}
 	return names, nil
 }
@@ -181,11 +150,9 @@ func (cs *ClientStream) ListServices() ([]protoreflect.FullName, error) {
 // This operation sends a request message on the stream and waits for the corresponding
 // response.
 func (cs *ClientStream) FileByFilename(filename string) ([]*descriptorpb.FileDescriptorProto, error) {
-	return cs.getDescriptors("file_by_filename", &reflectionv1.ServerReflectionRequest{
-		MessageRequest: &reflectionv1.ServerReflectionRequest_FileByFilename{
-			FileByFilename: filename,
-		},
-	})
+	return cs.getDescriptors("file_by_filename", reflectionv1.ServerReflectionRequest_builder{
+		FileByFilename: new(filename),
+	}.Build())
 }
 
 // FileContainingSymbol retrieves the descriptor for the file that defines the element
@@ -202,11 +169,9 @@ func (cs *ClientStream) FileByFilename(filename string) ([]*descriptorpb.FileDes
 // This operation sends a request message on the stream and waits for the corresponding
 // response.
 func (cs *ClientStream) FileContainingSymbol(name protoreflect.FullName) ([]*descriptorpb.FileDescriptorProto, error) {
-	return cs.getDescriptors("file_containing_symbol", &reflectionv1.ServerReflectionRequest{
-		MessageRequest: &reflectionv1.ServerReflectionRequest_FileContainingSymbol{
-			FileContainingSymbol: string(name),
-		},
-	})
+	return cs.getDescriptors("file_containing_symbol", reflectionv1.ServerReflectionRequest_builder{
+		FileContainingSymbol: new(string(name)),
+	}.Build())
 }
 
 // FileContainingExtension retrieves the descriptor for the file that defines the extension
@@ -223,14 +188,12 @@ func (cs *ClientStream) FileContainingSymbol(name protoreflect.FullName) ([]*des
 // This operation sends a request message on the stream and waits for the corresponding
 // response.
 func (cs *ClientStream) FileContainingExtension(messageName protoreflect.FullName, extensionNumber protoreflect.FieldNumber) ([]*descriptorpb.FileDescriptorProto, error) {
-	return cs.getDescriptors("file_containing_extension", &reflectionv1.ServerReflectionRequest{
-		MessageRequest: &reflectionv1.ServerReflectionRequest_FileContainingExtension{
-			FileContainingExtension: &reflectionv1.ExtensionRequest{
-				ContainingType:  string(messageName),
-				ExtensionNumber: int32(extensionNumber),
-			},
-		},
-	})
+	return cs.getDescriptors("file_containing_extension", reflectionv1.ServerReflectionRequest_builder{
+		FileContainingExtension: reflectionv1.ExtensionRequest_builder{
+			ContainingType:  string(messageName),
+			ExtensionNumber: int32(extensionNumber),
+		}.Build(),
+	}.Build())
 }
 
 // AllExtensionNumbers retrieves the tag numbers for all extensions of the given message that
@@ -244,11 +207,9 @@ func (cs *ClientStream) FileContainingExtension(messageName protoreflect.FullNam
 // This operation sends a request message on the stream and waits for the corresponding
 // response.
 func (cs *ClientStream) AllExtensionNumbers(messageName protoreflect.FullName) ([]protoreflect.FieldNumber, error) {
-	resp, err := cs.send(&reflectionv1.ServerReflectionRequest{
-		MessageRequest: &reflectionv1.ServerReflectionRequest_AllExtensionNumbersOfType{
-			AllExtensionNumbersOfType: string(messageName),
-		},
-	})
+	resp, err := cs.send(reflectionv1.ServerReflectionRequest_builder{
+		AllExtensionNumbersOfType: new(string(messageName)),
+	}.Build())
 	if err != nil {
 		return nil, err
 	}
@@ -256,58 +217,63 @@ func (cs *ClientStream) AllExtensionNumbers(messageName protoreflect.FullName) (
 	if respExtNumbers == nil {
 		return nil, errWrongResponseType(resp, "all_extension_numbers")
 	}
-	extNumbers := make([]protoreflect.FieldNumber, len(respExtNumbers.ExtensionNumber))
-	for i, num := range respExtNumbers.ExtensionNumber {
+	extNumbers := make([]protoreflect.FieldNumber, len(respExtNumbers.GetExtensionNumber()))
+	for i, num := range respExtNumbers.GetExtensionNumber() {
 		extNumbers[i] = protoreflect.FieldNumber(num)
 	}
 	return extNumbers, nil
 }
 
-// Close closes the stream and returns any trailers sent by the server.
-func (cs *ClientStream) Close() (http.Header, error) {
+// Close closes the stream.
+func (cs *ClientStream) Close() error {
 	stream := cs.getStream()
 
 	// half-close
-	_ = stream.CloseRequest()
+	_ = stream.CloseSend()
 	// await final EOF from server (which is also when we get trailers)
-	msg, err := stream.Receive()
+	var res reflectionv1.ServerReflectionResponse
+	err := stream.Receive(&res)
 	if err == nil {
-		err = fmt.Errorf("protocol error: server sent unexpected response message (%s)", respType(msg))
+		err = fmt.Errorf("protocol error: server sent unexpected response message (%s)", respType(&res))
 	} else if errors.Is(err, io.EOF) {
 		err = nil
 	}
-	// now we can close the stream and retrieve the trailers
-	closeErr := stream.CloseResponse()
+	// now we can close the stream
+	closeErr := stream.Close()
 	if err == nil && closeErr != nil {
 		err = closeErr
 	}
-	return stream.ResponseTrailer(), err
+	return err
 }
 
-func (cs *ClientStream) getStream() *reflectStream {
+func (cs *ClientStream) getStream() connect.ClientStream {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 	return cs.getStreamLocked()
 }
 
-func (cs *ClientStream) getStreamLocked() *reflectStream {
+func (cs *ClientStream) getStreamLocked() connect.ClientStream {
 	if cs.stream != nil {
 		return cs.stream
 	}
-	var connectClient *reflectClient
+	var spec connect.Spec
 	if cs.client.v1unimplemented.Load() {
-		connectClient = cs.client.clientV1Alpha
+		spec = cs.client.specV1Alpha
 		cs.isV1 = false
 	} else {
-		connectClient = cs.client.clientV1
+		spec = cs.client.specV1
 		cs.isV1 = true
 	}
-	stream := connectClient.CallBidiStream(cs.ctx)
-	maps.Copy(stream.RequestHeader(), cs.headers)
-	// we can eagerly send request headers; we can ignore return
-	// value because caller will see any errors when calling any
-	// other method on returned stream
-	_ = stream.Send(nil)
+	stream, err := cs.client.client.CallClientStream(cs.ctx, spec)
+	if err != nil {
+		// Subsequent operations on the stream will see this error.
+		cs.stream = &errClientStream{err: err}
+		return cs.stream
+	}
+	// We can eagerly send request headers; we can ignore the return value
+	// because the caller will see any errors when calling any other method
+	// on the returned stream.
+	_ = stream.SendHeaders()
 	cs.stream = stream
 	return cs.stream
 }
@@ -321,8 +287,8 @@ func (cs *ClientStream) getDescriptors(operation string, req *reflectionv1.Serve
 	if respDescriptors == nil {
 		return nil, errWrongResponseType(resp, operation)
 	}
-	descriptors := make([]*descriptorpb.FileDescriptorProto, len(respDescriptors.FileDescriptorProto))
-	for i, data := range respDescriptors.FileDescriptorProto {
+	descriptors := make([]*descriptorpb.FileDescriptorProto, len(respDescriptors.GetFileDescriptorProto()))
+	for i, data := range respDescriptors.GetFileDescriptorProto() {
 		fileDescriptor := &descriptorpb.FileDescriptorProto{}
 		if err := proto.Unmarshal(data, fileDescriptor); err != nil {
 			return nil, fmt.Errorf("reply to %s contained invalid descriptor proto: %w", operation, err)
@@ -333,7 +299,7 @@ func (cs *ClientStream) getDescriptors(operation string, req *reflectionv1.Serve
 }
 
 func (cs *ClientStream) send(req *reflectionv1.ServerReflectionRequest) (*reflectionv1.ServerReflectionResponse, error) {
-	req.Host = cs.host
+	req.SetHost(cs.host)
 	// Sending on a bidi stream is usually thread-safe. But the replies are in the same order
 	// as the requests. So to prevent concurrent use from interleaving replies (which would
 	// require much more logic here to properly correlate replies with requests), we send and
@@ -348,7 +314,8 @@ func (cs *ClientStream) send(req *reflectionv1.ServerReflectionRequest) (*reflec
 		if err := stream.Send(req); err != nil {
 			if errors.Is(err, io.EOF) {
 				// need to call Receive to get actual error code
-				_, recvErr := stream.Receive()
+				var res reflectionv1.ServerReflectionResponse
+				recvErr := stream.Receive(&res)
 				if recvErr != nil {
 					err = recvErr
 				}
@@ -358,27 +325,28 @@ func (cs *ClientStream) send(req *reflectionv1.ServerReflectionRequest) (*reflec
 			}
 			return nil, &streamError{err: err}
 		}
-		resp, err := stream.Receive()
-		if err != nil {
+		var res reflectionv1.ServerReflectionResponse
+		if err := stream.Receive(&res); err != nil {
 			if cs.shouldRetryLocked(err) {
 				continue
 			}
 			return nil, &streamError{err: err}
 		}
-		if errResp := resp.GetErrorResponse(); errResp != nil {
+		if errResp := res.GetErrorResponse(); errResp != nil {
 			code := connect.CodeInternal
-			if errResp.ErrorCode > 0 {
-				code = connect.Code(errResp.ErrorCode)
+			if errorCode := errResp.GetErrorCode(); errorCode > 0 {
+				code = connect.Code(errorCode)
 			}
-			return nil, connect.NewWireError(code, errors.New(errResp.ErrorMessage))
+			return nil, connect.NewError(code, errResp.GetErrorMessage()).WithRemote()
 		}
-		return resp, nil
+		return &res, nil
 	}
 }
 
 func (cs *ClientStream) shouldRetryLocked(err error) bool {
 	if connect.CodeOf(err) == connect.CodeUnimplemented && cs.isV1 {
 		// retry w/ v1alpha
+		_ = cs.stream.Close()
 		cs.stream = nil
 		cs.client.v1unimplemented.Store(true)
 		return true
@@ -386,20 +354,37 @@ func (cs *ClientStream) shouldRetryLocked(err error) bool {
 	return false
 }
 
-type reflectClient = connect.Client[reflectionv1.ServerReflectionRequest, reflectionv1.ServerReflectionResponse]
-type reflectStream = connect.BidiStreamForClient[reflectionv1.ServerReflectionRequest, reflectionv1.ServerReflectionResponse]
+// errClientStream is a [connect.ClientStream] stub that returns an error for
+// all send and receive operations. It stands in for a stream that failed to
+// open, so callers see the error on their next operation.
+type errClientStream struct {
+	err error
+}
+
+var _ connect.ClientStream = (*errClientStream)(nil)
+
+func (s *errClientStream) SendHeaders() error {
+	return s.err
+}
+
+func (s *errClientStream) Send(any) error {
+	return s.err
+}
+
+func (s *errClientStream) Receive(any) error {
+	return s.err
+}
+
+func (s *errClientStream) CloseSend() error {
+	return nil
+}
+
+func (s *errClientStream) Close() error {
+	return nil
+}
 
 type clientStreamOptions struct {
-	host    string
-	headers http.Header
-}
-
-type withRequestHeaders struct {
-	headers http.Header
-}
-
-func (w *withRequestHeaders) apply(options *clientStreamOptions) {
-	options.headers = w.headers
+	host string
 }
 
 type withReflectionHost struct {
@@ -431,25 +416,26 @@ func IsReflectionStreamBroken(err error) bool {
 }
 
 func errWrongResponseType(resp *reflectionv1.ServerReflectionResponse, operation string) error {
-	return fmt.Errorf("protocol error: wrong response type %T in reply to %s", resp.MessageResponse, operation)
+	return fmt.Errorf("protocol error: wrong response type %s in reply to %s", respType(resp), operation)
 }
 
 func respType(msg *reflectionv1.ServerReflectionResponse) string {
-	switch resp := msg.MessageResponse.(type) {
-	case *reflectionv1.ServerReflectionResponse_FileDescriptorResponse:
+	switch msg.WhichMessageResponse() {
+	case reflectionv1.ServerReflectionResponse_FileDescriptorResponse_case:
 		return "file_descriptor_response"
-	case *reflectionv1.ServerReflectionResponse_AllExtensionNumbersResponse:
+	case reflectionv1.ServerReflectionResponse_AllExtensionNumbersResponse_case:
 		return "all_extension_numbers_response"
-	case *reflectionv1.ServerReflectionResponse_ListServicesResponse:
+	case reflectionv1.ServerReflectionResponse_ListServicesResponse_case:
 		return "list_services_response"
-	case *reflectionv1.ServerReflectionResponse_ErrorResponse:
-		if errorCode := resp.ErrorResponse.ErrorCode; errorCode > 0 {
+	case reflectionv1.ServerReflectionResponse_ErrorResponse_case:
+		errorCode := msg.GetErrorResponse().GetErrorCode()
+		if errorCode > 0 {
 			return fmt.Sprintf("error_response: %v", connect.Code(errorCode))
 		}
-		return fmt.Sprintf("error_response: %d", resp.ErrorResponse.ErrorCode)
-	case nil:
+		return fmt.Sprintf("error_response: %d", errorCode)
+	case reflectionv1.ServerReflectionResponse_MessageResponse_not_set_case:
 		return "empty?"
 	default:
-		return fmt.Sprintf("unknown: %T", resp)
+		return fmt.Sprintf("unknown: %v", msg.WhichMessageResponse())
 	}
 }

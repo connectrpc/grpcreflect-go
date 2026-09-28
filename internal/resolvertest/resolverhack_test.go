@@ -21,9 +21,11 @@ import (
 	"strings"
 	"testing"
 
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	grpchealth "connectrpc.com/grpchealth"
-	. "connectrpc.com/grpcreflect"
-	_ "connectrpc.com/grpcreflect/internal/gen/go/connect/reflecttest/v1"
+	. "connectrpc.com/grpcreflect/v2"
+	_ "connectrpc.com/grpcreflect/v2/internal/gen/go/connect/reflecttest/v1"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/protobuf/types/descriptorpb"
 )
@@ -31,19 +33,19 @@ import (
 func TestResolverHack(t *testing.T) {
 	t.Parallel()
 	advertisedNames := []string{grpchealth.HealthV1ServiceName, ReflectV1ServiceName, ReflectV1AlphaServiceName}
-	reflector := NewStaticReflector(advertisedNames...)
+	connectServer := connect.NewServer()
+	Register(connectServer, WithNamer(NamerFunc(func() []string { return advertisedNames })))
 	mux := http.NewServeMux()
-	mux.Handle(NewHandlerV1(reflector))
-	mux.Handle(NewHandlerV1Alpha(reflector))
+	connecthttp.Mount(mux, connectServer)
 	server := httptest.NewUnstartedServer(mux)
 	server.EnableHTTP2 = true
 	server.StartTLS()
 	defer server.Close()
 
-	client := NewClient(server.Client(), server.URL)
+	client := NewClient(connect.NewClient(connecthttp.NewTransport(server.Client(), server.URL)))
 	stream := client.NewStream(context.Background())
 	defer func() {
-		_, _ = stream.Close()
+		_ = stream.Close()
 	}()
 	names, err := stream.ListServices()
 	if err != nil {

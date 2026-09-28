@@ -16,6 +16,7 @@ package grpcreflect
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -23,9 +24,10 @@ import (
 	"sort"
 	"testing"
 
-	"connectrpc.com/connect"
-	_ "connectrpc.com/grpcreflect/internal/gen/go/connect/reflecttest/v1"
-	reflectionv1 "connectrpc.com/grpcreflect/internal/gen/go/connectext/grpc/reflection/v1"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
+	reflecttestv1 "connectrpc.com/grpcreflect/v2/internal/gen/go/connect/reflecttest/v1"
+	reflectionv1 "connectrpc.com/grpcreflect/v2/internal/gen/go/connectext/grpc/reflection/v1"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
@@ -39,32 +41,67 @@ const actualServiceName = "connectext.grpc.reflection.v1.ServerReflection"
 
 func TestReflection(t *testing.T) {
 	t.Parallel()
+	staticNamer := NamerFunc(func() []string { return []string{actualServiceName} })
 	t.Run("static", func(t *testing.T) {
 		t.Parallel()
-		reflector := NewStaticReflector(actualServiceName)
-		testReflector(t, reflector, serviceURLPathV1)
+		testReflector(t, serviceURLPathV1, WithNamer(staticNamer))
 	})
 	t.Run("v1alpha1", func(t *testing.T) {
 		t.Parallel()
-		reflector := NewStaticReflector(actualServiceName)
-		testReflector(t, reflector, serviceURLPathV1Alpha)
+		testReflector(t, serviceURLPathV1Alpha, WithNamer(staticNamer))
 	})
 	t.Run("options", func(t *testing.T) {
 		t.Parallel()
-		reflector := NewReflector(
-			&staticNames{names: []string{actualServiceName}},
+		testReflector(t, serviceURLPathV1,
+			WithNamer(staticNamer),
 			WithExtensionResolver(protoregistry.GlobalTypes),
 			WithDescriptorResolver(protoregistry.GlobalFiles),
 		)
-		testReflector(t, reflector, serviceURLPathV1)
 	})
 }
 
-func testReflector(t *testing.T, reflector *Reflector, servicePath string) {
+func TestServerNamer(t *testing.T) {
+	t.Parallel()
+	noopHandler := func(context.Context, connect.Spec, connect.ServerStream) error { return nil }
+	connectServer := connect.NewServer()
+	Register(connectServer)
+	// Services registered after reflection still appear.
+	connectServer.Register(connect.Method{
+		Spec: connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Procedure:  "/connect.reflecttest.v1.TestService/Do",
+			Schema: reflecttestv1.File_connect_reflecttest_v1_reflecttest_proto.
+				Services().ByName("TestService").Methods().ByName("Do"),
+		},
+		Handler: noopHandler,
+	})
+	// A method whose schema isn't protobuf is skipped.
+	connectServer.Register(connect.Method{
+		Spec: connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Procedure:  "/connect.ping.v1.PingService/Ping",
+			Schema:     "not a protobuf schema",
+		},
+		Handler: noopHandler,
+	})
+	namer := &serverNamer{server: connectServer}
+	got := namer.Names()
+	want := []string{
+		"connect.reflecttest.v1.TestService",
+		ReflectV1ServiceName,
+		ReflectV1AlphaServiceName,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, expected %v", got, want)
+	}
+}
+
+func testReflector(t *testing.T, servicePath string, options ...Option) {
 	t.Helper()
+	connectServer := connect.NewServer()
+	Register(connectServer, options...)
 	mux := http.NewServeMux()
-	mux.Handle(NewHandlerV1(reflector))
-	mux.Handle(NewHandlerV1Alpha(reflector))
+	connecthttp.Mount(mux, connectServer)
 	server := httptest.NewUnstartedServer(mux)
 	server.EnableHTTP2 = true
 	server.StartTLS()
@@ -74,20 +111,37 @@ func testReflector(t *testing.T, reflector *Reflector, servicePath string) {
 		ProtoReflect().
 		Descriptor().
 		FullName())
-	client := connect.NewClient[
-		reflectionv1.ServerReflectionRequest,
-		reflectionv1.ServerReflectionResponse,
-	](
+
+	// Use a raw connect.Client with a bidi stream to exercise the handler,
+	// opening a new stream for each call.
+	transport := connecthttp.NewTransport(
 		server.Client(),
-		server.URL+servicePath+methodName,
-		connect.WithGRPC(),
+		server.URL,
+		connecthttp.WithGRPC(),
 	)
+	client := connect.NewClient(transport)
+	spec := connect.Spec{
+		StreamType: connect.StreamTypeBidi,
+		Procedure:  servicePath + methodName,
+	}
+
 	call := func(req *reflectionv1.ServerReflectionRequest) (*reflectionv1.ServerReflectionResponse, error) {
-		res, err := client.CallUnary(t.Context(), connect.NewRequest(req))
+		stream, err := client.CallClientStream(t.Context(), spec)
 		if err != nil {
 			return nil, err
 		}
-		return res.Msg, nil
+		defer stream.Close()
+		if err := stream.Send(req); err != nil {
+			return nil, err
+		}
+		if err := stream.CloseSend(); err != nil {
+			return nil, err
+		}
+		var res reflectionv1.ServerReflectionResponse
+		if err := stream.Receive(&res); err != nil {
+			return nil, err
+		}
+		return &res, nil
 	}
 
 	assertFileDescriptorResponseContains := func(
@@ -109,14 +163,14 @@ func testReflector(t *testing.T, reflector *Reflector, servicePath string) {
 			tb.Fatal("got nil FileDescriptorResponse")
 			return // convinces staticcheck that remaining code is unreachable
 		}
-		if len(fds.FileDescriptorProto) != numFiles {
-			tb.Fatalf("got %d FileDescriptorProtos, expected %d", len(fds.FileDescriptorProto), numFiles)
+		if len(fds.GetFileDescriptorProto()) != numFiles {
+			tb.Fatalf("got %d FileDescriptorProtos, expected %d", len(fds.GetFileDescriptorProto()), numFiles)
 		}
-		if !bytes.Contains(fds.FileDescriptorProto[0], []byte(substring)) {
+		if !bytes.Contains(fds.GetFileDescriptorProto()[0], []byte(substring)) {
 			tb.Fatalf(
 				"expected FileDescriptorProto to contain %s, got:\n%v",
 				substring,
-				fds.FileDescriptorProto[0],
+				fds.GetFileDescriptorProto()[0],
 			)
 		}
 	}
@@ -135,169 +189,145 @@ func testReflector(t *testing.T, reflector *Reflector, servicePath string) {
 			tb.Fatal("expected error, got nil")
 			return // convinces staticcheck that remaining code is unreachable
 		}
-		if err.ErrorCode != int32(connect.CodeNotFound) {
-			tb.Fatalf("got code %v, expected %v", err.ErrorCode, connect.CodeNotFound)
+		if err.GetErrorCode() != int32(connect.CodeNotFound) {
+			tb.Fatalf("got code %v, expected %v", err.GetErrorCode(), connect.CodeNotFound)
 		}
-		if err.ErrorMessage == "" {
+		if err.GetErrorMessage() == "" {
 			tb.Fatalf("got empty error message, expected some text")
 		}
 	}
 
 	t.Run("list_services", func(t *testing.T) {
 		t.Parallel()
-		req := &reflectionv1.ServerReflectionRequest{
-			Host: "some-host",
-			MessageRequest: &reflectionv1.ServerReflectionRequest_ListServices{
-				ListServices: "ignored per protobuf documentation",
-			},
-		}
+		req := reflectionv1.ServerReflectionRequest_builder{
+			Host:         "some-host",
+			ListServices: new("ignored per protobuf documentation"),
+		}.Build()
 		res, err := call(req)
 		if err != nil {
 			t.Fatal(err)
 		}
-		expect := &reflectionv1.ServerReflectionResponse{
-			ValidHost:       req.Host,
+		expect := reflectionv1.ServerReflectionResponse_builder{
+			ValidHost:       req.GetHost(),
 			OriginalRequest: req,
-			MessageResponse: &reflectionv1.ServerReflectionResponse_ListServicesResponse{
-				ListServicesResponse: &reflectionv1.ListServiceResponse{
-					Service: []*reflectionv1.ServiceResponse{
-						{Name: "connectext.grpc.reflection.v1.ServerReflection"},
-					},
+			ListServicesResponse: reflectionv1.ListServiceResponse_builder{
+				Service: []*reflectionv1.ServiceResponse{
+					reflectionv1.ServiceResponse_builder{
+						Name: "connectext.grpc.reflection.v1.ServerReflection",
+					}.Build(),
 				},
-			},
-		}
+			}.Build(),
+		}.Build()
 		if diff := cmp.Diff(expect, res, protocmp.Transform()); diff != "" {
 			t.Fatal(diff)
 		}
 	})
 	t.Run("file_by_filename", func(t *testing.T) {
 		t.Parallel()
-		req := &reflectionv1.ServerReflectionRequest{
-			Host: "some-host",
-			MessageRequest: &reflectionv1.ServerReflectionRequest_FileByFilename{
-				FileByFilename: "connectext/grpc/reflection/v1/reflection.proto",
-			},
-		}
+		req := reflectionv1.ServerReflectionRequest_builder{
+			Host:           "some-host",
+			FileByFilename: new("connectext/grpc/reflection/v1/reflection.proto"),
+		}.Build()
 		assertFileDescriptorResponseContains(t, req, 1, reflectionRequestFQN)
 	})
 	t.Run("file_by_filename_missing", func(t *testing.T) {
 		t.Parallel()
-		req := &reflectionv1.ServerReflectionRequest{
-			Host: "some-host",
-			MessageRequest: &reflectionv1.ServerReflectionRequest_FileByFilename{
-				FileByFilename: "foo.proto",
-			},
-		}
+		req := reflectionv1.ServerReflectionRequest_builder{
+			Host:           "some-host",
+			FileByFilename: new("foo.proto"),
+		}.Build()
 		assertFileDescriptorResponseNotFound(t, req)
 	})
 	t.Run("file_containing_symbol", func(t *testing.T) {
 		t.Parallel()
-		req := &reflectionv1.ServerReflectionRequest{
-			Host: "some-host",
-			MessageRequest: &reflectionv1.ServerReflectionRequest_FileContainingSymbol{
-				FileContainingSymbol: reflectionRequestFQN,
-			},
-		}
+		req := reflectionv1.ServerReflectionRequest_builder{
+			Host:                 "some-host",
+			FileContainingSymbol: new(reflectionRequestFQN),
+		}.Build()
 		assertFileDescriptorResponseContains(t, req, 1, "reflection.proto")
 	})
 	t.Run("file_containing_symbol_missing", func(t *testing.T) {
 		t.Parallel()
-		req := &reflectionv1.ServerReflectionRequest{
-			Host: "some-host",
-			MessageRequest: &reflectionv1.ServerReflectionRequest_FileContainingSymbol{
-				FileContainingSymbol: "something.Thing",
-			},
-		}
+		req := reflectionv1.ServerReflectionRequest_builder{
+			Host:                 "some-host",
+			FileContainingSymbol: new("something.Thing"),
+		}.Build()
 		assertFileDescriptorResponseNotFound(t, req)
 	})
 	t.Run("file_containing_extension", func(t *testing.T) {
 		t.Parallel()
-		req := &reflectionv1.ServerReflectionRequest{
+		req := reflectionv1.ServerReflectionRequest_builder{
 			Host: "some-host",
-			MessageRequest: &reflectionv1.ServerReflectionRequest_FileContainingExtension{
-				FileContainingExtension: &reflectionv1.ExtensionRequest{
-					ContainingType:  "connect.reflecttest.v1.Extendable",
-					ExtensionNumber: 10,
-				},
-			},
-		}
+			FileContainingExtension: reflectionv1.ExtensionRequest_builder{
+				ContainingType:  "connect.reflecttest.v1.Extendable",
+				ExtensionNumber: 10,
+			}.Build(),
+		}.Build()
 		// We expect two files here: both reflecttest_ext.proto and its dependency, reflecttest.proto
 		assertFileDescriptorResponseContains(t, req, 2, "reflecttest_ext.proto")
 	})
 	t.Run("file_containing_extension_missing", func(t *testing.T) {
 		t.Parallel()
-		req := &reflectionv1.ServerReflectionRequest{
+		req := reflectionv1.ServerReflectionRequest_builder{
 			Host: "some-host",
-			MessageRequest: &reflectionv1.ServerReflectionRequest_FileContainingExtension{
-				FileContainingExtension: &reflectionv1.ExtensionRequest{
-					ContainingType:  "connect.reflecttest.v1.Extendable",
-					ExtensionNumber: 42,
-				},
-			},
-		}
+			FileContainingExtension: reflectionv1.ExtensionRequest_builder{
+				ContainingType:  "connect.reflecttest.v1.Extendable",
+				ExtensionNumber: 42,
+			}.Build(),
+		}.Build()
 		assertFileDescriptorResponseNotFound(t, req)
 	})
 	t.Run("all_extension_numbers_of_type", func(t *testing.T) {
 		t.Parallel()
 		const extendableFQN = "connect.reflecttest.v1.Extendable"
-		req := &reflectionv1.ServerReflectionRequest{
-			Host: "some-host",
-			MessageRequest: &reflectionv1.ServerReflectionRequest_AllExtensionNumbersOfType{
-				AllExtensionNumbersOfType: extendableFQN,
-			},
-		}
+		req := reflectionv1.ServerReflectionRequest_builder{
+			Host:                      "some-host",
+			AllExtensionNumbersOfType: new(extendableFQN),
+		}.Build()
 		res, err := call(req)
 		if err != nil {
 			t.Fatal(err.Error())
 		}
-		expect := &reflectionv1.ServerReflectionResponse{
-			ValidHost:       req.Host,
+		expect := reflectionv1.ServerReflectionResponse_builder{
+			ValidHost:       req.GetHost(),
 			OriginalRequest: req,
-			MessageResponse: &reflectionv1.ServerReflectionResponse_AllExtensionNumbersResponse{
-				AllExtensionNumbersResponse: &reflectionv1.ExtensionNumberResponse{
-					BaseTypeName:    extendableFQN,
-					ExtensionNumber: []int32{10, 11},
-				},
-			},
-		}
+			AllExtensionNumbersResponse: reflectionv1.ExtensionNumberResponse_builder{
+				BaseTypeName:    extendableFQN,
+				ExtensionNumber: []int32{10, 11},
+			}.Build(),
+		}.Build()
 		if diff := cmp.Diff(expect, res, protocmp.Transform()); diff != "" {
 			t.Fatal(diff)
 		}
 	})
 	t.Run("all_extension_numbers_of_type_find_descriptor_by_name", func(t *testing.T) {
 		const extendableFQN = "connect.reflecttest.v1.DoRequest"
-		req := &reflectionv1.ServerReflectionRequest{
-			Host: "some-host",
-			MessageRequest: &reflectionv1.ServerReflectionRequest_AllExtensionNumbersOfType{
-				AllExtensionNumbersOfType: extendableFQN,
-			},
-		}
+		req := reflectionv1.ServerReflectionRequest_builder{
+			Host:                      "some-host",
+			AllExtensionNumbersOfType: new(extendableFQN),
+		}.Build()
 		res, err := call(req)
 		if err != nil {
 			t.Fatal(err.Error())
 		}
-		expect := &reflectionv1.ServerReflectionResponse{
-			ValidHost:       req.Host,
+		expect := reflectionv1.ServerReflectionResponse_builder{
+			ValidHost:       req.GetHost(),
 			OriginalRequest: req,
-			MessageResponse: &reflectionv1.ServerReflectionResponse_AllExtensionNumbersResponse{
-				AllExtensionNumbersResponse: &reflectionv1.ExtensionNumberResponse{
-					BaseTypeName:    extendableFQN,
-					ExtensionNumber: []int32{},
-				},
-			},
-		}
+			AllExtensionNumbersResponse: reflectionv1.ExtensionNumberResponse_builder{
+				BaseTypeName:    extendableFQN,
+				ExtensionNumber: []int32{},
+			}.Build(),
+		}.Build()
 		if diff := cmp.Diff(expect, res, protocmp.Transform()); diff != "" {
 			t.Fatal(diff)
 		}
 	})
 	t.Run("all_extension_numbers_of_type_missing", func(t *testing.T) {
 		t.Parallel()
-		req := &reflectionv1.ServerReflectionRequest{
-			Host: "some-host",
-			MessageRequest: &reflectionv1.ServerReflectionRequest_AllExtensionNumbersOfType{
-				AllExtensionNumbersOfType: "foobar",
-			},
-		}
+		req := reflectionv1.ServerReflectionRequest_builder{
+			Host:                      "some-host",
+			AllExtensionNumbersOfType: new("foobar"),
+		}.Build()
 		assertFileDescriptorResponseNotFound(t, req)
 	})
 }

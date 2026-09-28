@@ -12,16 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package grpcreflect enables any net/http server, including those built with
-// Connect, to handle gRPC's server reflection API. This lets ad-hoc debugging
-// tools call your Protobuf services and print the responses without a copy of
-// the schema.
+// Package grpcreflect enables Connect servers to handle gRPC's server
+// reflection API. This lets ad-hoc debugging tools call your Protobuf
+// services and print the responses without a copy of the schema.
 //
 // The exposed reflection API is wire compatible with Google's gRPC
 // implementations, so it works with grpcurl, grpcui, BloomRPC, and many other
 // tools.
 //
-// The core Connect package is connectrpc.com/connect. Documentation is
+// The core Connect package is connectrpc.com/connect/v2. Documentation is
 // available at https://connectrpc.com.
 package grpcreflect
 
@@ -31,11 +30,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"slices"
+	"sort"
 
-	"connectrpc.com/connect"
-	reflectionv1 "connectrpc.com/grpcreflect/internal/gen/go/connectext/grpc/reflection/v1"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/grpcreflect/v2/internal/gen/go/connectext/grpc/reflection/v1"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -62,156 +61,149 @@ var (
 	globalFiles = resolverHackForConnectext(embeddedDescriptors)
 )
 
-// NewHandlerV1 constructs an implementation of v1 of the gRPC server reflection
-// API. It returns an HTTP handler and the path on which to mount it.
-//
-// Note that because the reflection API requires bidirectional streaming, the
-// returned handler doesn't support HTTP/1.1. If your server must also support
-// older tools that use the v1alpha server reflection API, see NewHandlerV1Alpha.
-func NewHandlerV1(reflector *Reflector, options ...connect.HandlerOption) (string, http.Handler) {
-	return newHandler(reflector, serviceURLPathV1, options)
+// reflectSchema returns the schema for serviceName's reflection method. The
+// generated Go types in this module carry a "connectext." package prefix, so
+// the schema comes from the authoritative embedded descriptors instead: the
+// service name a client sees must match the path the method is served on.
+func reflectSchema(serviceName string) protoreflect.MethodDescriptor {
+	descriptor, err := globalFiles.FindDescriptorByName(
+		protoreflect.FullName(serviceName + "." + methodName),
+	)
+	if err != nil {
+		return nil
+	}
+	method, ok := descriptor.(protoreflect.MethodDescriptor)
+	if !ok {
+		return nil
+	}
+	return method
 }
 
-// NewHandlerV1Alpha constructs an implementation of v1alpha of the gRPC server
-// reflection API, which is useful to support tools that haven't updated to the
-// v1 API. It returns an HTTP handler and the path on which to mount it.
+// Register registers the gRPC server reflection API on server, serving both
+// the v1 and v1alpha versions of the service. The v1alpha version supports
+// tools that haven't updated to the v1 API.
 //
-// Like NewHandlerV1, the returned handler doesn't support HTTP/1.1.
-func NewHandlerV1Alpha(reflector *Reflector, options ...connect.HandlerOption) (string, http.Handler) {
-	// v1 is binary-compatible with v1alpha, so we only need to change paths.
-	return newHandler(reflector, serviceURLPathV1Alpha, options)
-}
-
-// Reflector implements the underlying logic for gRPC's protobuf server
-// reflection. They're configurable, so they can support straightforward
-// process-local reflection or more complex proxying.
+// By default, reflection describes the services registered on server,
+// including the reflection services themselves. Use WithNamer to expose a
+// different set of services, for example when proxying reflection requests
+// to other backends.
 //
-// Keep in mind that by default, Reflectors expose every protobuf type and
-// extension compiled into your binary. Think twice before including the
-// default Reflector in a public API.
+// Keep in mind that by default, reflection serves every protobuf type and
+// extension compiled into your binary. Think twice before registering it on
+// a public API.
+//
+// Note that because the reflection API requires bidirectional streaming,
+// HTTP transports serve it only over HTTP/2.
 //
 // For more information, see
 // https://github.com/grpc/grpc-go/blob/master/Documentation/server-reflection-tutorial.md,
 // https://github.com/grpc/grpc/blob/master/doc/server-reflection.md, and
 // https://github.com/fullstorydev/grpcurl.
-type Reflector struct {
-	namer              Namer
-	extensionResolver  ExtensionResolver
-	descriptorResolver protodesc.Resolver
-}
-
-// NewReflector constructs a highly configurable Reflector: it can serve a
-// dynamic list of services, proxy reflection requests to other backends, or
-// use an alternate source of extension information.
-//
-// To build a simpler Reflector that supports a static list of services using
-// information from the package-global Protobuf registry, use
-// NewStaticReflector.
-func NewReflector(namer Namer, options ...Option) *Reflector {
-	reflector := &Reflector{
-		namer:              namer,
+func Register(server *connect.Server, options ...Option) {
+	reflector := &reflector{
+		namer:              &serverNamer{server: server},
 		extensionResolver:  protoregistry.GlobalTypes,
 		descriptorResolver: globalFiles,
 	}
 	for _, option := range options {
 		option.apply(reflector)
 	}
-	return reflector
+	// v1 is binary-compatible with v1alpha, so we only need to change paths.
+	for _, serviceName := range []string{ReflectV1ServiceName, ReflectV1AlphaServiceName} {
+		server.Register(connect.Method{
+			Spec: connect.Spec{
+				StreamType: connect.StreamTypeBidi,
+				Procedure:  "/" + serviceName + "/" + methodName,
+				Schema:     reflectSchema(serviceName),
+			},
+			Handler: reflector.serverReflectionInfo,
+		})
+	}
 }
 
-// NewStaticReflector constructs a simple Reflector that supports a static list
-// of services using information from the package-global Protobuf registry. For
-// a more configurable Reflector, use NewReflector.
-//
-// The supplied strings should be fully-qualified Protobuf service names (for
-// example, "acme.user.v1.UserService"). Generated Connect service files
-// have this declared as a constant.
-func NewStaticReflector(services ...string) *Reflector {
-	namer := &staticNames{names: services}
-	return NewReflector(namer)
+// reflector implements the underlying logic for gRPC's protobuf server
+// reflection.
+type reflector struct {
+	namer              Namer
+	extensionResolver  ExtensionResolver
+	descriptorResolver protodesc.Resolver
 }
 
 // serverReflectionInfo implements the gRPC server reflection API.
-func (r *Reflector) serverReflectionInfo(
+func (r *reflector) serverReflectionInfo(
 	_ context.Context,
-	stream *connect.BidiStream[
-		reflectionv1.ServerReflectionRequest,
-		reflectionv1.ServerReflectionResponse,
-	],
+	_ connect.Spec,
+	stream connect.ServerStream,
 ) error {
 	fileDescriptorsSent := &fileDescriptorNameSet{}
 	for {
-		request, err := stream.Receive()
-		if errors.Is(err, io.EOF) {
-			return nil
-		} else if err != nil {
+		var request reflectionv1.ServerReflectionRequest
+		if err := stream.Receive(&request); err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
 			return err
 		}
 		// The server reflection API sends file descriptors as uncompressed
 		// Protobuf-serialized bytes.
-		response := &reflectionv1.ServerReflectionResponse{
-			ValidHost:       request.Host,
-			OriginalRequest: request,
-		}
-		switch messageRequest := request.MessageRequest.(type) {
-		case *reflectionv1.ServerReflectionRequest_FileByFilename:
-			data, err := r.getFileByFilename(messageRequest.FileByFilename, fileDescriptorsSent)
+		response := reflectionv1.ServerReflectionResponse_builder{
+			ValidHost:       request.GetHost(),
+			OriginalRequest: &request,
+		}.Build()
+		switch request.WhichMessageRequest() {
+		case reflectionv1.ServerReflectionRequest_FileByFilename_case:
+			data, err := r.getFileByFilename(request.GetFileByFilename(), fileDescriptorsSent)
 			if err != nil {
-				response.MessageResponse = newNotFoundResponse(err)
+				response.SetErrorResponse(newNotFoundResponse(err))
 			} else {
-				response.MessageResponse = &reflectionv1.ServerReflectionResponse_FileDescriptorResponse{
-					FileDescriptorResponse: &reflectionv1.FileDescriptorResponse{FileDescriptorProto: data},
-				}
+				response.SetFileDescriptorResponse(newFileDescriptorResponse(data))
 			}
-		case *reflectionv1.ServerReflectionRequest_FileContainingSymbol:
+		case reflectionv1.ServerReflectionRequest_FileContainingSymbol_case:
 			data, err := r.getFileContainingSymbol(
-				messageRequest.FileContainingSymbol,
+				request.GetFileContainingSymbol(),
 				fileDescriptorsSent,
 			)
 			if err != nil {
-				response.MessageResponse = newNotFoundResponse(err)
+				response.SetErrorResponse(newNotFoundResponse(err))
 			} else {
-				response.MessageResponse = &reflectionv1.ServerReflectionResponse_FileDescriptorResponse{
-					FileDescriptorResponse: &reflectionv1.FileDescriptorResponse{FileDescriptorProto: data},
-				}
+				response.SetFileDescriptorResponse(newFileDescriptorResponse(data))
 			}
-		case *reflectionv1.ServerReflectionRequest_FileContainingExtension:
-			msgFQN := messageRequest.FileContainingExtension.ContainingType
-			extNumber := messageRequest.FileContainingExtension.ExtensionNumber
+		case reflectionv1.ServerReflectionRequest_FileContainingExtension_case:
+			msgFQN := request.GetFileContainingExtension().GetContainingType()
+			extNumber := request.GetFileContainingExtension().GetExtensionNumber()
 			data, err := r.getFileContainingExtension(msgFQN, extNumber, fileDescriptorsSent)
 			if err != nil {
-				response.MessageResponse = newNotFoundResponse(err)
+				response.SetErrorResponse(newNotFoundResponse(err))
 			} else {
-				response.MessageResponse = &reflectionv1.ServerReflectionResponse_FileDescriptorResponse{
-					FileDescriptorResponse: &reflectionv1.FileDescriptorResponse{FileDescriptorProto: data},
-				}
+				response.SetFileDescriptorResponse(newFileDescriptorResponse(data))
 			}
-		case *reflectionv1.ServerReflectionRequest_AllExtensionNumbersOfType:
-			nums, err := r.getAllExtensionNumbersOfType(messageRequest.AllExtensionNumbersOfType)
+		case reflectionv1.ServerReflectionRequest_AllExtensionNumbersOfType_case:
+			fqn := request.GetAllExtensionNumbersOfType()
+			nums, err := r.getAllExtensionNumbersOfType(fqn)
 			if err != nil {
-				response.MessageResponse = newNotFoundResponse(err)
+				response.SetErrorResponse(newNotFoundResponse(err))
 			} else {
-				response.MessageResponse = &reflectionv1.ServerReflectionResponse_AllExtensionNumbersResponse{
-					AllExtensionNumbersResponse: &reflectionv1.ExtensionNumberResponse{
-						BaseTypeName:    messageRequest.AllExtensionNumbersOfType,
-						ExtensionNumber: nums,
-					},
-				}
+				response.SetAllExtensionNumbersResponse(reflectionv1.ExtensionNumberResponse_builder{
+					BaseTypeName:    fqn,
+					ExtensionNumber: nums,
+				}.Build())
 			}
-		case *reflectionv1.ServerReflectionRequest_ListServices:
+		case reflectionv1.ServerReflectionRequest_ListServices_case:
 			services := r.namer.Names()
 			serviceResponses := make([]*reflectionv1.ServiceResponse, len(services))
 			for i, name := range services {
-				serviceResponses[i] = &reflectionv1.ServiceResponse{Name: name}
+				serviceResponses[i] = reflectionv1.ServiceResponse_builder{Name: name}.Build()
 			}
-			response.MessageResponse = &reflectionv1.ServerReflectionResponse_ListServicesResponse{
-				ListServicesResponse: &reflectionv1.ListServiceResponse{Service: serviceResponses},
-			}
+			response.SetListServicesResponse(reflectionv1.ListServiceResponse_builder{
+				Service: serviceResponses,
+			}.Build())
+		case reflectionv1.ServerReflectionRequest_MessageRequest_not_set_case:
+			return connect.Errorf(connect.CodeInvalidArgument, "invalid MessageRequest: not set")
 		default:
-			return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf(
+			return connect.Errorf(connect.CodeInvalidArgument,
 				"invalid MessageRequest: %v",
-				request.MessageRequest,
-			))
+				request.WhichMessageRequest(),
+			)
 		}
 		if err := stream.Send(response); err != nil {
 			return err
@@ -219,7 +211,7 @@ func (r *Reflector) serverReflectionInfo(
 	}
 }
 
-func (r *Reflector) getFileByFilename(fname string, sent *fileDescriptorNameSet) ([][]byte, error) {
+func (r *reflector) getFileByFilename(fname string, sent *fileDescriptorNameSet) ([][]byte, error) {
 	fd, err := r.descriptorResolver.FindFileByPath(fname)
 	if err != nil {
 		return nil, err
@@ -227,7 +219,7 @@ func (r *Reflector) getFileByFilename(fname string, sent *fileDescriptorNameSet)
 	return fileDescriptorWithDependencies(fd, sent)
 }
 
-func (r *Reflector) getFileContainingSymbol(fqn string, sent *fileDescriptorNameSet) ([][]byte, error) {
+func (r *reflector) getFileContainingSymbol(fqn string, sent *fileDescriptorNameSet) ([][]byte, error) {
 	desc, err := r.descriptorResolver.FindDescriptorByName(protoreflect.FullName(fqn))
 	if err != nil {
 		return nil, err
@@ -239,7 +231,7 @@ func (r *Reflector) getFileContainingSymbol(fqn string, sent *fileDescriptorName
 	return fileDescriptorWithDependencies(fd, sent)
 }
 
-func (r *Reflector) getFileContainingExtension(
+func (r *reflector) getFileContainingExtension(
 	msgFQN string,
 	extNumber int32,
 	sent *fileDescriptorNameSet,
@@ -258,7 +250,7 @@ func (r *Reflector) getFileContainingExtension(
 	return fileDescriptorWithDependencies(fd, sent)
 }
 
-func (r *Reflector) getAllExtensionNumbersOfType(fqn string) ([]int32, error) {
+func (r *reflector) getAllExtensionNumbersOfType(fqn string) ([]int32, error) {
 	nums := []int32{}
 	name := protoreflect.FullName(fqn)
 	r.extensionResolver.RangeExtensionsByMessage(name, func(ext protoreflect.ExtensionType) bool {
@@ -285,9 +277,9 @@ type Namer interface {
 // NamerFunc is an adapter to allow the use of an ordinary function as a Namer.
 // Example:
 //
-//	reflector := grpcreflect.NewReflector(grpcreflect.NamerFunc(
+//	grpcreflect.Register(server, grpcreflect.WithNamer(grpcreflect.NamerFunc(
 //		func() []string { return s.names },
-//	))
+//	)))
 type NamerFunc func() []string
 
 // Names returns the service names, implements the Namer interface.
@@ -295,19 +287,26 @@ func (f NamerFunc) Names() []string {
 	return f()
 }
 
-// An Option configures a Reflector.
+// An Option configures the reflection services registered by Register.
 type Option interface {
-	apply(*Reflector)
+	apply(*reflector)
+}
+
+// WithNamer sets the Namer that lists the services exposed by reflection.
+// By default, reflection describes the services registered on the server
+// it's registered with.
+func WithNamer(namer Namer) Option {
+	return &namerOption{namer: namer}
 }
 
 // WithExtensionResolver sets the resolver used to find Protobuf extensions. By
-// default, Reflectors use protoregistry.GlobalTypes.
+// default, reflection uses protoregistry.GlobalTypes.
 func WithExtensionResolver(resolver ExtensionResolver) Option {
 	return &extensionResolverOption{resolver: resolver}
 }
 
 // WithDescriptorResolver sets the resolver used to find Protobuf type
-// information (typically called a "descriptor"). By default, Reflectors use
+// information (typically called a "descriptor"). By default, reflection uses
 // protoregistry.GlobalFiles.
 func WithDescriptorResolver(resolver protodesc.Resolver) Option {
 	return &descriptorResolverOption{resolver: resolver}
@@ -385,28 +384,30 @@ func fileDescriptorWithDependencies(rootFile protoreflect.FileDescriptor, sent *
 	return results, nil
 }
 
-func newNotFoundResponse(err error) *reflectionv1.ServerReflectionResponse_ErrorResponse {
-	return &reflectionv1.ServerReflectionResponse_ErrorResponse{
-		ErrorResponse: &reflectionv1.ErrorResponse{
-			ErrorCode:    int32(connect.CodeNotFound),
-			ErrorMessage: err.Error(),
-		},
-	}
+func newNotFoundResponse(err error) *reflectionv1.ErrorResponse {
+	return reflectionv1.ErrorResponse_builder{
+		ErrorCode:    int32(connect.CodeNotFound),
+		ErrorMessage: err.Error(),
+	}.Build()
 }
 
-func newHandler(reflector *Reflector, servicePath string, options []connect.HandlerOption) (string, http.Handler) {
-	return servicePath, connect.NewBidiStreamHandler(
-		servicePath+methodName,
-		reflector.serverReflectionInfo,
-		options...,
-	)
+func newFileDescriptorResponse(data [][]byte) *reflectionv1.FileDescriptorResponse {
+	return reflectionv1.FileDescriptorResponse_builder{FileDescriptorProto: data}.Build()
+}
+
+type namerOption struct {
+	namer Namer
+}
+
+func (o *namerOption) apply(reflector *reflector) {
+	reflector.namer = o.namer
 }
 
 type extensionResolverOption struct {
 	resolver ExtensionResolver
 }
 
-func (o *extensionResolverOption) apply(reflector *Reflector) {
+func (o *extensionResolverOption) apply(reflector *reflector) {
 	reflector.extensionResolver = o.resolver
 }
 
@@ -414,16 +415,32 @@ type descriptorResolverOption struct {
 	resolver protodesc.Resolver
 }
 
-func (o *descriptorResolverOption) apply(reflector *Reflector) {
+func (o *descriptorResolverOption) apply(reflector *reflector) {
 	reflector.descriptorResolver = o.resolver
 }
 
-type staticNames struct {
-	names []string
+// serverNamer lists the services registered on a connect.Server. Names are
+// derived lazily from the server's specs, so services registered after
+// reflection still appear. Methods without a protobuf schema are skipped.
+type serverNamer struct {
+	server *connect.Server
 }
 
-func (n *staticNames) Names() []string {
-	return n.names
+func (n *serverNamer) Names() []string {
+	seen := make(map[string]struct{})
+	for spec := range n.server.Specs() {
+		method, ok := spec.Schema.(protoreflect.MethodDescriptor)
+		if !ok {
+			continue
+		}
+		seen[string(method.Parent().FullName())] = struct{}{}
+	}
+	names := make([]string, 0, len(seen))
+	for service := range seen {
+		names = append(names, service)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // resolverHackForConnectext returns a resolver that can successfully resolve the descriptors

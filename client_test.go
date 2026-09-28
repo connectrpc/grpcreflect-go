@@ -20,11 +20,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"sync/atomic"
 	"testing"
 
-	"connectrpc.com/connect"
-	_ "connectrpc.com/grpcreflect/internal/gen/go/connect/reflecttest/v1"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
+	_ "connectrpc.com/grpcreflect/v2/internal/gen/go/connect/reflecttest/v1"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
@@ -33,15 +36,74 @@ func TestClient(t *testing.T) {
 	t.Run("v1", func(t *testing.T) {
 		t.Parallel()
 		testClient(t, func(mux *http.ServeMux) {
-			mux.Handle(NewHandlerV1(NewStaticReflector(actualServiceName)))
+			mountReflectorPath(mux, serviceURLPathV1)
 		})
 	})
 	t.Run("v1alpha", func(t *testing.T) {
 		t.Parallel()
 		testClient(t, func(mux *http.ServeMux) {
-			mux.Handle(NewHandlerV1Alpha(NewStaticReflector(actualServiceName)))
+			mountReflectorPath(mux, serviceURLPathV1Alpha)
 		})
 	})
+}
+
+func TestClientCallInfo(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mountReflectorPath(mux, serviceURLPathV1)
+	var gotRequestHeader atomic.Value
+	gotRequestHeader.Store("")
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRequestHeader.Store(r.Header.Get("Test-Request-Header"))
+		mux.ServeHTTP(w, r)
+	})
+	server := httptest.NewUnstartedServer(handler)
+	server.EnableHTTP2 = true
+	server.StartTLS()
+	t.Cleanup(server.Close)
+
+	client := NewClient(connect.NewClient(connecthttp.NewTransport(
+		server.Client(), server.URL,
+	)))
+
+	ctx, info := connect.NewClientContext(t.Context())
+	info.RequestHeader().Set("Test-Request-Header", "request-value")
+	stream := client.NewStream(ctx)
+
+	if _, err := stream.ListServices(); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got, _ := gotRequestHeader.Load().(string); got != "request-value" {
+		t.Errorf("request header: got %q, want %q", got, "request-value")
+	}
+	if got := info.ResponseHeader().Get("Content-Type"); got == "" {
+		t.Error("expected response headers, got none")
+	}
+	if info.Protocol == "" {
+		t.Error("expected Protocol to be set")
+	}
+	if err := stream.Close(); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+// mountReflectorPath serves reflection on a single service path, unlike
+// Register, so tests can exercise the client's v1 to v1alpha fallback.
+func mountReflectorPath(mux *http.ServeMux, servicePath string) {
+	ref := &reflector{
+		namer:              NamerFunc(func() []string { return []string{actualServiceName} }),
+		extensionResolver:  protoregistry.GlobalTypes,
+		descriptorResolver: globalFiles,
+	}
+	server := connect.NewServer()
+	server.Register(connect.Method{
+		Spec: connect.Spec{
+			StreamType: connect.StreamTypeBidi,
+			Procedure:  servicePath + methodName,
+		},
+		Handler: ref.serverReflectionInfo,
+	})
+	connecthttp.Mount(mux, server)
 }
 
 func testClient(t *testing.T, register func(server *http.ServeMux)) {
@@ -57,16 +119,15 @@ func testClient(t *testing.T, register func(server *http.ServeMux)) {
 	// So we don't want the context and thus the stream) to have
 	// already been canceled. So we don't use t.Context().
 	ctx := context.Background()
-	client := NewClient(server.Client(), server.URL, connect.WithGRPC())
+	client := NewClient(connect.NewClient(connecthttp.NewTransport(
+		server.Client(),
+		server.URL,
+		connecthttp.WithGRPC(),
+	)))
 	stream := client.NewStream(ctx)
 	t.Cleanup(func() {
-		trailers, err := stream.Close()
-		if err != nil {
+		if err := stream.Close(); err != nil {
 			t.Fatalf("unexpected err: %v", err)
-		}
-		// We used gRPC, which always sends back trailers
-		if len(trailers) == 0 {
-			t.Fatal("expected trailers, got none")
 		}
 	})
 

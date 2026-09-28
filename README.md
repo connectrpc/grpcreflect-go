@@ -2,12 +2,12 @@ grpcreflect
 ===========
 
 [![Build](https://github.com/connectrpc/grpcreflect-go/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/connectrpc/grpcreflect-go/actions/workflows/ci.yaml)
-[![GoDoc](https://pkg.go.dev/badge/connectrpc.com/grpcreflect.svg)](https://pkg.go.dev/connectrpc.com/grpcreflect)
+[![GoDoc](https://pkg.go.dev/badge/connectrpc.com/grpcreflect/v2.svg)](https://pkg.go.dev/connectrpc.com/grpcreflect/v2)
 
-`connectrpc.com/grpcreflect` adds support for gRPC's server reflection API to any
-`net/http` server &mdash; including those built with [Connect][connect]. With
-server reflection enabled, ad-hoc debugging tools can call your gRPC-compatible
-handlers and print the responses *without* a copy of the schema.
+`connectrpc.com/grpcreflect/v2` adds support for gRPC's server reflection API
+to servers built with [Connect][connect]. With server reflection enabled,
+ad-hoc debugging tools can call your gRPC-compatible handlers and print the
+responses *without* a copy of the schema.
 
 The exposed reflection API is wire compatible with Google's gRPC
 implementations, so it works with [grpcurl], [grpcui], and many
@@ -23,45 +23,48 @@ on [connectrpc.com][docs] (especially the [Getting Started] guide for Go), the
 package main
 
 import (
+  "log"
   "net/http"
 
-  "golang.org/x/net/http2"
-  "golang.org/x/net/http2/h2c"
-  "connectrpc.com/grpcreflect"
+  "connectrpc.com/connect/v2"
+  "connectrpc.com/connect/v2/connecthttp"
+  "connectrpc.com/grpcreflect/v2"
 )
 
 func main() {
+  server := connect.NewServer()
+  // Register your Connect services on the server, then register reflection.
+  // By default, reflection describes the services registered on the server,
+  // and serves both the v1 and v1alpha versions of the reflection API.
+  grpcreflect.Register(server)
   mux := http.NewServeMux()
-  reflector := grpcreflect.NewStaticReflector(
-    "acme.user.v1.UserService",
-    "acme.group.v1.GroupService",
-    // protoc-gen-connect-go generates package-level constants
-    // for these fully-qualified protobuf service names, so you'd more likely
-    // reference userv1.UserServiceName and groupv1.GroupServiceName.
-  )
-  mux.Handle(grpcreflect.NewHandlerV1(reflector))
-  // Many tools still expect the older version of the server reflection API, so
-  // most servers should mount both handlers.
-  mux.Handle(grpcreflect.NewHandlerV1Alpha(reflector))
-  // If you don't need to support HTTP/2 without TLS (h2c), you can drop
-  // x/net/http2 and use http.ListenAndServeTLS instead.
-  http.ListenAndServe(
-    ":8080",
-    h2c.NewHandler(mux, &http2.Server{}),
-  )
+  connecthttp.Mount(mux, server)
+  p := new(http.Protocols)
+  p.SetHTTP1(true)
+  // The reflection API requires bidirectional streaming, so it's only served
+  // over HTTP/2. Supporting HTTP/2 without TLS is convenient for gRPC tools.
+  p.SetUnencryptedHTTP2(true)
+  s := &http.Server{
+    Addr:      ":8080",
+    Handler:   mux,
+    Protocols: p,
+  }
+  if err := s.ListenAndServe(); err != nil {
+    log.Fatalf("listen failed: %v", err)
+  }
 }
 ```
 
-## Status: Stable
+## Status: Unstable
 
-This module is stable. It supports:
+This module is unstable while connect-go v2 is in alpha. Expect breaking
+changes as we iterate toward a stable v2 release.
 
-* The three most recent major releases of Go. Keep in mind that [only the last
+It supports:
+
+* The two most recent major releases of Go. Keep in mind that [only the last
   two releases receive security patches][go-support-policy].
 * [APIv2] of Protocol Buffers in Go (`google.golang.org/protobuf`).
-
-Within those parameters, `grpcreflect` follows semantic versioning.
-We will _not_ make breaking changes in the 1.x series of releases.
 
 ## Legal
 
