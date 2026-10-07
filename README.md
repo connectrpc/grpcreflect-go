@@ -55,16 +55,19 @@ func main() {
 }
 ```
 
-## Status: Unstable
+## Status: Stable
 
-This module is unstable while connect-go v2 is in alpha. Expect breaking
-changes as we iterate toward a stable v2 release.
-
-It supports:
+This module, `connectrpc.com/grpcreflect/v2`, is stable. It supports:
 
 * The two most recent major releases of Go. Keep in mind that [only the last
   two releases receive security patches][go-support-policy].
 * [APIv2] of Protocol Buffers in Go (`google.golang.org/protobuf`).
+
+Within those parameters, `grpcreflect` follows semantic versioning. We will
+_not_ make breaking changes in the 2.x series of releases.
+
+Module `connectrpc.com/grpcreflect` is the `v1` module, for use with
+`connectrpc.com/connect` v1. It remains stable and supported.
 
 ## Legal
 
