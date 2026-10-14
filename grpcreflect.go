@@ -17,8 +17,7 @@
 // services and print the responses without a copy of the schema.
 //
 // The exposed reflection API is wire compatible with Google's gRPC
-// implementations, so it works with grpcurl, grpcui, BloomRPC, and many other
-// tools.
+// implementations, so it works with grpcurl, grpcui, and many other tools.
 //
 // The core Connect package is connectrpc.com/connect/v2. Documentation is
 // available at https://connectrpc.com.

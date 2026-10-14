@@ -97,7 +97,7 @@ func WithReflectionHost(host string) ClientStreamOption {
 // ClientStream represents a bidirectional stream for downloading reflection information.
 // The reflection protocol resembles a sequence of unary RPCs: multiple requests sent on the
 // stream, each getting back a corresponding response. However, all such requests and responses
-// and sent on a single stream to a single server, to ensure consistency in the information
+// are sent on a single stream to a single server, to ensure consistency in the information
 // downloaded (since different servers could potentially have different versions of reflection
 // information).
 type ClientStream struct {
