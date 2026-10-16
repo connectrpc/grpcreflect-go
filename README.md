@@ -74,7 +74,7 @@ Module `connectrpc.com/grpcreflect` is the `v1` module, for use with
 Offered under the [Apache 2 license][license].
 
 [APIv2]: https://blog.golang.org/protobuf-apiv2
-[Getting Started]: https://connectrpc.com/go/getting-started
+[Getting Started]: https://connectrpc.com/docs/go/getting-started
 [blog]: https://buf.build/blog/connect-a-better-grpc
 [connect]: https://github.com/connectrpc/connect-go
 [examples-go]: https://github.com/connectrpc/examples-go
@@ -82,4 +82,4 @@ Offered under the [Apache 2 license][license].
 [go-support-policy]: https://golang.org/doc/devel/release#policy
 [grpcui]: https://github.com/fullstorydev/grpcui
 [grpcurl]: https://github.com/fullstorydev/grpcurl
-[license]: https://github.com/connectrpc/grpcreflect-go/blob/main/LICENSE.txt
+[license]: https://github.com/connectrpc/grpcreflect-go/blob/main/LICENSE
